@@ -109,14 +109,27 @@ function isTaskFinished(task: Task) {
 function normalizeData(value: unknown): AppData {
   if (!value || typeof value !== "object") return DEFAULT_DATA;
   const input = value as Partial<AppData>;
+  const legacyItems = (value as { items?: Array<{ id?: string; task?: string; startDate?: string; completed?: boolean[] }> }).items;
+  const sourceTasks = Array.isArray(input.tasks) ? input.tasks : Array.isArray(legacyItems)
+    ? legacyItems.map((item) => ({
+        id: item.id || uid("task"),
+        title: item.task || "未命名任务",
+        categoryId: "other",
+        tags: [],
+        startDate: item.startDate || localISO(),
+        completed: item.completed || [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }))
+    : [];
   return {
     version: 1,
-    tasks: Array.isArray(input.tasks) ? input.tasks.map((task) => ({
+    tasks: sourceTasks.map((task) => ({
       ...task,
       completed: INTERVALS.map((_, index) => Boolean(task.completed?.[index])),
       tags: Array.isArray(task.tags) ? task.tags : [],
       updatedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
-    })) : [],
+    })),
     sessions: Array.isArray(input.sessions) ? input.sessions : [],
     categories: Array.isArray(input.categories) && input.categories.length ? input.categories : DEFAULT_DATA.categories,
     settings: { ...DEFAULT_DATA.settings, ...(input.settings || {}) },
@@ -157,6 +170,8 @@ export function StudyApp() {
   const [tab, setTab] = useState<Tab>("today");
   const [hydrated, setHydrated] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [newEditTag, setNewEditTag] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [taskFilter, setTaskFilter] = useState<"active" | "all" | "done">("active");
@@ -164,6 +179,7 @@ export function StudyApp() {
   const [syncCode, setSyncCode] = useState("");
   const [syncInput, setSyncInput] = useState("");
   const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
+  const [syncMessage, setSyncMessage] = useState("尚未启用跨设备同步");
   const [timer, setTimer] = useState<TimerState | null>(null);
   const [timerTaskId, setTimerTaskId] = useState("");
   const [now, setNow] = useState(Date.now());
@@ -272,8 +288,30 @@ export function StudyApp() {
   }
 
   function editTask(task: Task) {
-    const title = window.prompt("修改任务名称", task.title)?.trim();
-    if (title) updateTask(task.id, { title });
+    setEditingTask({ ...task, tags: [...task.tags] });
+    setNewEditTag("");
+  }
+
+  function saveEditedTask(event: FormEvent) {
+    event.preventDefault();
+    if (!editingTask) return;
+    const title = editingTask.title.trim();
+    if (!title) return notify("任务名称不能为空");
+    updateTask(editingTask.id, { ...editingTask, title });
+    setEditingTask(null);
+    notify("任务信息已更新");
+  }
+
+  function addEditTag() {
+    const tag = newEditTag.trim().replace(/^#/, "");
+    if (!editingTask || !tag || editingTask.tags.includes(tag)) return;
+    setEditingTask({ ...editingTask, tags: [...editingTask.tags, tag] });
+    setNewEditTag("");
+  }
+
+  function removeTaskTag(task: Task, tag: string) {
+    updateTask(task.id, { tags: task.tags.filter((entry) => entry !== tag) });
+    notify(`已删除标签 #${tag}`);
   }
 
   function deleteTask(task: Task) {
@@ -330,22 +368,29 @@ export function StudyApp() {
 
   async function pullAndMerge(code: string) {
     setSyncStatus("syncing");
+    setSyncMessage("正在检查云端数据…");
     try {
       const response = await syncRequest(code, { action: "pull" });
-      if (!response.ok) throw new Error("pull failed");
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.error || `同步服务返回 ${response.status}`);
+      }
       const result = await response.json();
       revisionRef.current = result.revision || 0;
       if (result.found && result.data) setData((current) => mergeData(current, normalizeData(result.data)));
       else await pushData(code, data, 0);
       localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify({ code, revision: revisionRef.current }));
       setSyncStatus("synced");
-    } catch {
+      setSyncMessage(result.found ? "云端数据已合并，本机修改会自动上传" : "已创建新的云端数据空间");
+    } catch (error) {
       setSyncStatus("error");
+      setSyncMessage(error instanceof Error ? error.message : "同步失败，请检查网络后重试");
     }
   }
 
   async function pushData(code: string, payload: AppData, forcedRevision?: number) {
     setSyncStatus("syncing");
+    setSyncMessage("正在保存到云端…");
     try {
       const response = await syncRequest(code, { action: "push", data: payload, revision: forcedRevision ?? revisionRef.current });
       if (response.status === 409) {
@@ -363,8 +408,10 @@ export function StudyApp() {
       }
       localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify({ code, revision: revisionRef.current }));
       setSyncStatus("synced");
-    } catch {
+      setSyncMessage(`已同步 · 云端版本 ${revisionRef.current}`);
+    } catch (error) {
       setSyncStatus("error");
+      setSyncMessage(error instanceof Error ? error.message : "暂时无法连接云端，本机数据不会丢失");
     }
   }
 
@@ -376,20 +423,33 @@ export function StudyApp() {
   async function connectSync() {
     const code = normalizeSyncCode(syncInput);
     if (code.replace(/-/g, "").length < 12) return notify("同步码至少需要 12 位");
-    setSyncCode(code);
     setSyncInput(code);
     revisionRef.current = 0;
-    skipAutoSync.current = true;
     localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify({ code, revision: 0 }));
-    await pullAndMerge(code);
-    notify("已连接，之后会自动同步");
+    if (syncCode === code) {
+      await pullAndMerge(code);
+    } else {
+      skipAutoSync.current = true;
+      setSyncCode(code);
+      setSyncStatus("syncing");
+      setSyncMessage("正在连接这个同步码…");
+    }
+    notify("同步码已启用");
   }
 
   function generateSyncCode() {
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     const values = crypto.getRandomValues(new Uint8Array(12));
     const code = Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
-    setSyncInput(code.match(/.{1,4}/g)?.join("-") || code);
+    const formatted = code.match(/.{1,4}/g)?.join("-") || code;
+    setSyncInput(formatted);
+    revisionRef.current = 0;
+    skipAutoSync.current = true;
+    localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify({ code: formatted, revision: 0 }));
+    setSyncCode(formatted);
+    setSyncStatus("syncing");
+    setSyncMessage("正在创建新的云端数据空间…");
+    notify("安全同步码已生成并启用");
   }
 
   function disconnectSync() {
@@ -398,6 +458,7 @@ export function StudyApp() {
     revisionRef.current = 0;
     localStorage.removeItem(LOCAL_SYNC_KEY);
     setSyncStatus("local");
+    setSyncMessage("尚未启用跨设备同步");
     notify("已断开云同步，本机数据仍保留");
   }
 
@@ -521,7 +582,7 @@ export function StudyApp() {
             <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务或标签" aria-label="搜索任务或标签" />
           </div>
           <div className="subfilters"><button className={taskFilter === "active" ? "active" : ""} onClick={() => setTaskFilter("active")}>进行中</button><button className={taskFilter === "all" ? "active" : ""} onClick={() => setTaskFilter("all")}>全部</button><button className={taskFilter === "done" ? "active" : ""} onClick={() => setTaskFilter("done")}>已完成</button><span>{visibleTasks.length} 个任务</span></div>
-          {visibleTasks.length ? <div className="task-grid">{visibleTasks.map((task) => <TaskCard key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} onEdit={() => editTask(task)} onDelete={() => deleteTask(task)} onFocus={() => { setTimerTaskId(task.id); setTab("focus"); }} />)}</div> : <div className="panel"><Empty icon="□" title="没有符合条件的任务" text="试试切换分类，或者新建一个任务。" /></div>}
+          {visibleTasks.length ? <div className="task-grid">{visibleTasks.map((task) => <TaskCard key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} onEdit={() => editTask(task)} onDelete={() => deleteTask(task)} onRemoveTag={(tag) => removeTaskTag(task, tag)} onFocus={() => { setTimerTaskId(task.id); setTab("focus"); }} />)}</div> : <div className="panel"><Empty icon="□" title="没有符合条件的任务" text="试试切换分类，或者新建一个任务。" /></div>}
         </section>}
 
         {tab === "focus" && <section className="page-stack focus-layout">
@@ -550,7 +611,7 @@ export function StudyApp() {
         </section>}
 
         {tab === "settings" && <section className="page-stack settings-grid">
-          <div className="panel settings-card"><PanelTitle title="设备同步" subtitle="使用同一个同步码连接手机与电脑" /><div className="sync-box"><label>同步码<input value={syncInput} onChange={(event) => setSyncInput(normalizeSyncCode(event.target.value))} placeholder="XXXX-XXXX-XXXX" autoComplete="off" /></label><div className="button-row"><button className="secondary" onClick={generateSyncCode}>生成安全同步码</button><button className="primary" onClick={connectSync}>{syncCode ? "立即同步" : "连接同步"}</button></div>{syncCode && <button className="text-button danger-text" onClick={disconnectSync}>断开当前同步码</button>}<p>同步码相当于密码，请不要发给其他人。数据会先保存在本机，联网后自动同步。</p></div></div>
+          <div className="panel settings-card"><PanelTitle title="设备同步" subtitle="使用同一个同步码连接手机与电脑" /><div className="sync-box"><label>同步码<input value={syncInput} onChange={(event) => setSyncInput(normalizeSyncCode(event.target.value))} placeholder="XXXX-XXXX-XXXX" autoComplete="off" /></label><div className={`sync-feedback ${syncStatus}`}><span className={`sync-dot ${syncStatus}`} /><div><strong>{syncStatus === "synced" ? "同步正常" : syncStatus === "syncing" ? "正在同步" : syncStatus === "error" ? "同步未完成" : "本机模式"}</strong><small>{syncMessage}</small></div></div><div className="button-row"><button className="secondary" onClick={generateSyncCode}>生成并启用新同步码</button><button className="primary" onClick={connectSync}>{syncCode ? "重新同步" : "连接已有同步码"}</button></div>{syncCode && <button className="text-button danger-text" onClick={disconnectSync}>断开当前同步码</button>}<p>同步码相当于密码，请不要发给其他人。第一次在电脑生成并启用后，手机只需输入相同同步码并点击连接。</p></div></div>
           <div className="panel settings-card"><PanelTitle title="专注偏好" subtitle="调整你的默认节奏" /><div className="form-grid"><label>专注时长（分钟）<input type="number" min="1" max="180" value={data.settings.focusMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, focusMinutes: Number(event.target.value) || 25 } }))} /></label><label>休息时长（分钟）<input type="number" min="1" max="60" value={data.settings.breakMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, breakMinutes: Number(event.target.value) || 5 } }))} /></label><label>每日目标（分钟）<input type="number" min="10" max="1440" value={data.settings.dailyGoalMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, dailyGoalMinutes: Number(event.target.value) || 180 } }))} /></label></div></div>
           <div className="panel settings-card"><PanelTitle title="任务分类" subtitle="用大类管理你的学习方向" /><div className="category-manage">{data.categories.map((category) => <span key={category.id}><i style={{ background: category.color }} />{category.name}</span>)}</div><form className="inline-form" onSubmit={addCategory}><input value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="新增分类名称" /><button className="secondary">添加</button></form></div>
           <div className="panel settings-card"><PanelTitle title="备份与迁移" subtitle="随时保留一份自己的数据" /><div className="button-row"><button className="secondary" onClick={exportData}>导出 JSON 备份</button><label className="secondary file-button">导入备份<input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void importData(event.target.files[0])} /></label></div></div>
@@ -560,6 +621,7 @@ export function StudyApp() {
       <nav className="mobile-nav">{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
 
       {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title"><div className="modal-head"><div><p className="eyebrow">NEW MEMORY</p><h2 id="new-task-title">添加学习任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div><form onSubmit={createTask}><label>任务名称<input name="title" autoFocus maxLength={100} placeholder="例如：英语 Unit 3 单词" required /></label><div className="form-grid"><label>大类<select name="category" defaultValue={data.categories[0]?.id}>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input name="startDate" type="date" defaultValue={today} required /></label></div><label>标签<input name="tags" placeholder="例如：单词、错题、背诵（逗号分隔）" /></label><div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">添加并排期</button></div></form></div></div>}
+      {editingTask && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditingTask(null)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-title"><div className="modal-head"><div><p className="eyebrow">EDIT TASK</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div><form onSubmit={saveEditedTask}><label>任务名称<input value={editingTask.title} onChange={(event) => setEditingTask({ ...editingTask, title: event.target.value })} maxLength={100} required /></label><div className="form-grid"><label>大类<select value={editingTask.categoryId} onChange={(event) => setEditingTask({ ...editingTask, categoryId: event.target.value })}>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input type="date" value={editingTask.startDate} onChange={(event) => setEditingTask({ ...editingTask, startDate: event.target.value })} required /></label></div><label>标签</label><div className="editable-tags">{editingTask.tags.length ? editingTask.tags.map((tag) => <button type="button" key={tag} onClick={() => setEditingTask({ ...editingTask, tags: editingTask.tags.filter((entry) => entry !== tag) })}>#{tag}<span>×</span></button>) : <small>还没有标签</small>}</div><div className="inline-form"><input value={newEditTag} onChange={(event) => setNewEditTag(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addEditTag(); } }} placeholder="输入新标签" /><button type="button" className="secondary" onClick={addEditTag}>添加标签</button></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditingTask(null)}>取消</button><button className="primary">保存修改</button></div></form></div></div>}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
@@ -582,6 +644,6 @@ function TodayTask({ task, category, onToggle }: { task: Task; category?: Catego
   return <article className="today-task"><i style={{ background: category?.color || "#777" }} /><div className="task-info"><span>{category?.name || "其他"}</span><strong>{task.title}</strong><small>{task.tags.join(" · ") || "暂无标签"}</small></div><div className="today-actions">{actionable.map((entry) => <button key={entry.index} className={entry.status} onClick={() => onToggle(task.id, entry.index)}><span>{entry.status === "overdue" ? "已逾期" : "今天"}</span><small>第 {entry.index + 1} 次 · {dateLabel(entry.date)}</small></button>)}</div></article>;
 }
 
-function TaskCard({ task, category, onToggle, onEdit, onDelete, onFocus }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void; onEdit: () => void; onDelete: () => void; onFocus: () => void }) {
-  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: category?.color, background: `${category?.color}18` }}>{category?.name || "其他"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <span key={tag}>#{tag}</span>) : <span>#未添加标签</span>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务">•••</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(addDays(task.startDate, days))}</span><small>{days} 天</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除</button></div></div></article>;
+function TaskCard({ task, category, onToggle, onEdit, onDelete, onRemoveTag, onFocus }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void; onEdit: () => void; onDelete: () => void; onRemoveTag: (tag: string) => void; onFocus: () => void }) {
+  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: category?.color, background: `${category?.color}18` }}>{category?.name || "其他"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <button type="button" key={tag} onClick={() => onRemoveTag(tag)} title={`删除标签 ${tag}`}>#{tag}<span>×</span></button>) : <span>#未添加标签</span>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务">编辑</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(addDays(task.startDate, days))}</span><small>{days} 天</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除</button></div></div></article>;
 }
