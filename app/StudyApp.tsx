@@ -48,12 +48,7 @@ const DEFAULT_DATA: AppData = {
   version: 1,
   tasks: [],
   sessions: [],
-  categories: [
-    { id: "west", name: "西综", color: "#4d6c8f" },
-    { id: "english", name: "英语", color: "#a7604f" },
-    { id: "politics", name: "政治", color: "#7a6a9b" },
-    { id: "other", name: "其他", color: "#6d7b72" },
-  ],
+  categories: [],
   settings: { focusMinutes: 25, breakMinutes: 5, dailyGoalMinutes: 180 },
 };
 
@@ -114,7 +109,7 @@ function normalizeData(value: unknown): AppData {
     ? legacyItems.map((item) => ({
         id: item.id || uid("task"),
         title: item.task || "未命名任务",
-        categoryId: "other",
+        categoryId: "",
         tags: [],
         startDate: item.startDate || localISO(),
         completed: item.completed || [],
@@ -131,7 +126,7 @@ function normalizeData(value: unknown): AppData {
       updatedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
     })),
     sessions: Array.isArray(input.sessions) ? input.sessions : [],
-    categories: Array.isArray(input.categories) && input.categories.length ? input.categories : DEFAULT_DATA.categories,
+    categories: Array.isArray(input.categories) ? input.categories : DEFAULT_DATA.categories,
     settings: { ...DEFAULT_DATA.settings, ...(input.settings || {}) },
   };
 }
@@ -274,7 +269,7 @@ export function StudyApp() {
     const task: Task = {
       id: uid("task"),
       title,
-      categoryId: String(form.get("category") || "other"),
+      categoryId: String(form.get("category") || ""),
       tags: [...new Set(tags)],
       startDate: String(form.get("startDate") || today),
       completed: INTERVALS.map(() => false),
@@ -494,19 +489,17 @@ export function StudyApp() {
   }
 
   function deleteCategory(category: Category) {
-    if (["west", "english", "politics", "other"].includes(category.id)) {
-      return notify("默认分类不能删除，可以新建更适合自己的分类");
-    }
     const affected = data.tasks.filter((task) => task.categoryId === category.id).length;
+    const replacement = data.categories.find((entry) => entry.id !== category.id);
     const message = affected
-      ? `删除“${category.name}”后，其中 ${affected} 个任务会移动到“其他”，是否继续？`
+      ? `删除“${category.name}”后，其中 ${affected} 个任务会移动到“${replacement?.name || "未分类"}”，是否继续？`
       : `确定删除分类“${category.name}”吗？`;
     if (!window.confirm(message)) return;
     const stamp = new Date().toISOString();
     setData((current) => ({
       ...current,
       categories: current.categories.filter((entry) => entry.id !== category.id),
-      tasks: current.tasks.map((task) => task.categoryId === category.id ? { ...task, categoryId: "other", updatedAt: stamp } : task),
+      tasks: current.tasks.map((task) => task.categoryId === category.id ? { ...task, categoryId: replacement?.id || "", updatedAt: stamp } : task),
     }));
     notify(`已删除分类“${category.name}”`);
   }
@@ -625,21 +618,21 @@ export function StudyApp() {
             <div className="panel wide"><PanelTitle title="最近 7 天" subtitle="每日有效专注分钟" /><div className="bar-chart">{weekly.map((day) => <div key={day.iso} className={day.iso === today ? "today" : ""}><span>{day.minutes || ""}</span><i style={{ height: `${Math.max(5, day.minutes / maxDayMinutes * 100)}%` }} /><small>{day.label}</small></div>)}</div></div>
             <div className="panel"><PanelTitle title="分类投入" subtitle="累计专注时长" />{categoryStats.some((entry) => entry.seconds) ? <div className="category-stats">{categoryStats.map((entry) => <div key={entry.id}><span><i style={{ background: entry.color }} />{entry.name}</span><strong>{minutesLabel(entry.seconds)}</strong><div><i style={{ width: `${totalSeconds ? entry.seconds / totalSeconds * 100 : 0}%`, background: entry.color }} /></div></div>)}</div> : <Empty icon="▥" title="还没有统计数据" text="完成番茄钟后会自动生成。" />}</div>
           </div>
-          <div className="panel"><PanelTitle title="投入最多的任务" subtitle="帮助你看见时间去了哪里" />{topTasks.length ? <div className="ranking">{topTasks.map((entry, index) => <div key={entry.task.id}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{entry.task.title}</strong><small>{categoryMap.get(entry.task.categoryId)?.name || "其他"}</small></span><em>{minutesLabel(entry.seconds)}</em></div>)}</div> : <Empty icon="↗" title="排行榜等待第一条记录" text="开始专注后，这里会按累计时间排序。" />}</div>
+          <div className="panel"><PanelTitle title="投入最多的任务" subtitle="帮助你看见时间去了哪里" />{topTasks.length ? <div className="ranking">{topTasks.map((entry, index) => <div key={entry.task.id}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{entry.task.title}</strong><small>{categoryMap.get(entry.task.categoryId)?.name || "未分类"}</small></span><em>{minutesLabel(entry.seconds)}</em></div>)}</div> : <Empty icon="↗" title="排行榜等待第一条记录" text="开始专注后，这里会按累计时间排序。" />}</div>
         </section>}
 
         {tab === "settings" && <section className="page-stack settings-grid">
           <div className="panel settings-card"><PanelTitle title="设备同步" subtitle="使用同一个同步码连接手机与电脑" /><div className="sync-box"><label>同步码<input value={syncInput} onChange={(event) => setSyncInput(normalizeSyncCode(event.target.value))} placeholder="XXXX-XXXX-XXXX" autoComplete="off" /></label><div className={`sync-feedback ${syncStatus}`}><span className={`sync-dot ${syncStatus}`} /><div><strong>{syncStatus === "synced" ? "同步正常" : syncStatus === "syncing" ? "正在同步" : syncStatus === "error" ? "同步未完成" : "本机模式"}</strong><small>{syncMessage}</small></div></div><div className="button-row"><button className="secondary" onClick={generateSyncCode}>生成并启用新同步码</button><button className="primary" onClick={connectSync}>{syncCode ? "重新同步" : "连接已有同步码"}</button></div>{syncCode && <button className="text-button danger-text" onClick={disconnectSync}>断开当前同步码</button>}<p>同步码相当于密码，请不要发给其他人。第一次在电脑生成并启用后，手机只需输入相同同步码并点击连接。</p></div></div>
           <div className="panel settings-card"><PanelTitle title="专注偏好" subtitle="调整你的默认节奏" /><div className="form-grid"><label>专注时长（分钟）<input type="number" min="1" max="180" value={data.settings.focusMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, focusMinutes: Number(event.target.value) || 25 } }))} /></label><label>休息时长（分钟）<input type="number" min="1" max="60" value={data.settings.breakMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, breakMinutes: Number(event.target.value) || 5 } }))} /></label><label>每日目标（分钟）<input type="number" min="10" max="1440" value={data.settings.dailyGoalMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, dailyGoalMinutes: Number(event.target.value) || 180 } }))} /></label></div></div>
-          <div className="panel settings-card"><PanelTitle title="任务分类" subtitle="用大类管理你的学习方向" /><div className="category-manage">{data.categories.map((category) => <span key={category.id}><i style={{ background: category.color }} />{category.name}{!["west", "english", "politics", "other"].includes(category.id) && <button type="button" onClick={() => deleteCategory(category)} aria-label={`删除分类 ${category.name}`}>×</button>}</span>)}</div><form className="inline-form" onSubmit={addCategory}><input value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="新增分类名称" /><button className="secondary">添加</button></form><p className="manage-hint">西综、英语、政治和其他是默认分类；你自己添加的分类右侧会显示删除按钮。</p></div>
+          <div className="panel settings-card"><PanelTitle title="任务分类" subtitle="所有分类都可以自由添加和删除" /><div className="category-manage">{data.categories.length ? data.categories.map((category) => <span key={category.id}><i style={{ background: category.color }} />{category.name}<button type="button" onClick={() => deleteCategory(category)} aria-label={`删除分类 ${category.name}`}>×</button></span>) : <span>当前没有分类</span>}</div><form className="inline-form" onSubmit={addCategory}><input value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="例如：西综、英语、政治" /><button className="secondary">添加分类</button></form><p className="manage-hint">删除正在使用的分类不会删除任务，相关任务会移入其他现有分类；没有其他分类时则转为“未分类”。</p></div>
           <div className="panel settings-card"><PanelTitle title="备份与迁移" subtitle="随时保留一份自己的数据" /><div className="button-row"><button className="secondary" onClick={exportData}>导出 JSON 备份</button><label className="secondary file-button">导入备份<input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void importData(event.target.files[0])} /></label></div></div>
         </section>}
       </main>
 
       <nav className="mobile-nav">{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
 
-      {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title"><div className="modal-head"><div><p className="eyebrow">NEW MEMORY</p><h2 id="new-task-title">添加学习任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div><form onSubmit={createTask}><label>任务名称<input name="title" autoFocus maxLength={100} placeholder="例如：英语 Unit 3 单词" required /></label><div className="form-grid"><label>大类<select name="category" defaultValue={data.categories[0]?.id}>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input name="startDate" type="date" defaultValue={today} required /></label></div><label>标签<input name="tags" placeholder="例如：单词、错题、背诵（逗号分隔）" /></label><div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">添加并排期</button></div></form></div></div>}
-      {editingTask && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditingTask(null)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-title"><div className="modal-head"><div><p className="eyebrow">EDIT TASK</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div><form onSubmit={saveEditedTask}><label>任务名称<input value={editingTask.title} onChange={(event) => setEditingTask({ ...editingTask, title: event.target.value })} maxLength={100} required /></label><div className="form-grid"><label>大类<select value={editingTask.categoryId} onChange={(event) => setEditingTask({ ...editingTask, categoryId: event.target.value })}>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input type="date" value={editingTask.startDate} onChange={(event) => setEditingTask({ ...editingTask, startDate: event.target.value })} required /></label></div><label>标签</label><div className="editable-tags">{editingTask.tags.length ? editingTask.tags.map((tag) => <button type="button" key={tag} onClick={() => setEditingTask({ ...editingTask, tags: editingTask.tags.filter((entry) => entry !== tag) })}>#{tag}<span>×</span></button>) : <small>还没有标签</small>}</div><div className="inline-form"><input value={newEditTag} onChange={(event) => setNewEditTag(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addEditTag(); } }} placeholder="输入新标签" /><button type="button" className="secondary" onClick={addEditTag}>添加标签</button></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditingTask(null)}>取消</button><button className="primary">保存修改</button></div></form></div></div>}
+      {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title"><div className="modal-head"><div><p className="eyebrow">NEW MEMORY</p><h2 id="new-task-title">添加学习任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div><form onSubmit={createTask}><label>任务名称<input name="title" autoFocus maxLength={100} placeholder="例如：英语 Unit 3 单词" required /></label><div className="form-grid"><label>分类<select name="category" defaultValue={data.categories[0]?.id || ""}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input name="startDate" type="date" defaultValue={today} required /></label></div><label>标签<input name="tags" placeholder="例如：单词、错题、背诵（逗号分隔）" /></label><div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">添加并排期</button></div></form></div></div>}
+      {editingTask && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditingTask(null)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-title"><div className="modal-head"><div><p className="eyebrow">EDIT TASK</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div><form onSubmit={saveEditedTask}><label>任务名称<input value={editingTask.title} onChange={(event) => setEditingTask({ ...editingTask, title: event.target.value })} maxLength={100} required /></label><div className="form-grid"><label>分类<select value={editingTask.categoryId} onChange={(event) => setEditingTask({ ...editingTask, categoryId: event.target.value })}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input type="date" value={editingTask.startDate} onChange={(event) => setEditingTask({ ...editingTask, startDate: event.target.value })} required /></label></div><label>标签</label><div className="editable-tags">{editingTask.tags.length ? editingTask.tags.map((tag) => <button type="button" key={tag} onClick={() => setEditingTask({ ...editingTask, tags: editingTask.tags.filter((entry) => entry !== tag) })}>#{tag}<span>×</span></button>) : <small>还没有标签</small>}</div><div className="inline-form"><input value={newEditTag} onChange={(event) => setNewEditTag(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addEditTag(); } }} placeholder="输入新标签" /><button type="button" className="secondary" onClick={addEditTag}>添加标签</button></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditingTask(null)}>取消</button><button className="primary">保存修改</button></div></form></div></div>}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
@@ -659,9 +652,10 @@ function Empty({ icon, title, text }: { icon: string; title: string; text: strin
 
 function TodayTask({ task, category, onToggle }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void }) {
   const actionable = INTERVALS.map((_, index) => ({ index, status: reviewStatus(task, index), date: addDays(task.startDate, INTERVALS[index]) })).filter((entry) => entry.status === "due" || entry.status === "overdue");
-  return <article className="today-task"><i style={{ background: category?.color || "#777" }} /><div className="task-info"><span>{category?.name || "其他"}</span><strong>{task.title}</strong><small>{task.tags.join(" · ") || "暂无标签"}</small></div><div className="today-actions">{actionable.map((entry) => <button key={entry.index} className={entry.status} onClick={() => onToggle(task.id, entry.index)}><span>{entry.status === "overdue" ? "已逾期" : "今天"}</span><small>第 {entry.index + 1} 次 · {dateLabel(entry.date)}</small></button>)}</div></article>;
+  return <article className="today-task"><i style={{ background: category?.color || "#a1a1aa" }} /><div className="task-info"><span>{category?.name || "未分类"}</span><strong>{task.title}</strong><small>{task.tags.join(" · ") || "暂无标签"}</small></div><div className="today-actions">{actionable.map((entry) => <button key={entry.index} className={entry.status} onClick={() => onToggle(task.id, entry.index)}><span>{entry.status === "overdue" ? "已逾期" : "今天"}</span><small>第 {entry.index + 1} 次 · {dateLabel(entry.date)}</small></button>)}</div></article>;
 }
 
 function TaskCard({ task, category, onToggle, onEdit, onDelete, onRemoveTag, onFocus }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void; onEdit: () => void; onDelete: () => void; onRemoveTag: (tag: string) => void; onFocus: () => void }) {
-  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: category?.color, background: `${category?.color}18` }}>{category?.name || "其他"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <button type="button" key={tag} onClick={() => onRemoveTag(tag)} title={`删除标签 ${tag}`}>#{tag}<span>删除 ×</span></button>) : <button type="button" onClick={onEdit}>＋ 添加标签</button>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务和标签">编辑任务</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(addDays(task.startDate, days))}</span><small>{days} 天</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onEdit}>管理标签</button><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除任务</button></div></div></article>;
+  const categoryColor = category?.color || "#71717a";
+  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: categoryColor, background: `${categoryColor}18` }}>{category?.name || "未分类"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <button type="button" key={tag} onClick={() => onRemoveTag(tag)} title={`删除标签 ${tag}`}>#{tag}<span>删除 ×</span></button>) : <button type="button" onClick={onEdit}>＋ 添加标签</button>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务和标签">编辑任务</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(addDays(task.startDate, days))}</span><small>{days} 天</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onEdit}>管理标签</button><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除任务</button></div></div></article>;
 }
