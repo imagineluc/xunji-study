@@ -183,6 +183,8 @@
   .category-manage { @apply flex flex-wrap gap-2; }
   .category-manage span { @apply inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px]; }
   .category-manage i { @apply size-2 rounded-full; }
+  .category-manage button { @apply ml-1 grid size-5 place-items-center rounded-full border-0 bg-zinc-200 text-xs text-zinc-500 transition-all duration-200 ease-in-out hover:scale-[1.02] hover:bg-rose-100 hover:text-rose-600 active:scale-[0.98]; }
+  .manage-hint { @apply mb-0 mt-3 text-[10px] leading-relaxed text-zinc-500; }
   .inline-form { @apply mt-4 flex gap-2; }
   .inline-form input { @apply min-w-0 flex-1; }
   .file-button { @apply inline-flex cursor-pointer items-center justify-center; }

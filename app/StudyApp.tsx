@@ -493,6 +493,24 @@ export function StudyApp() {
     setNewCategory("");
   }
 
+  function deleteCategory(category: Category) {
+    if (["west", "english", "politics", "other"].includes(category.id)) {
+      return notify("默认分类不能删除，可以新建更适合自己的分类");
+    }
+    const affected = data.tasks.filter((task) => task.categoryId === category.id).length;
+    const message = affected
+      ? `删除“${category.name}”后，其中 ${affected} 个任务会移动到“其他”，是否继续？`
+      : `确定删除分类“${category.name}”吗？`;
+    if (!window.confirm(message)) return;
+    const stamp = new Date().toISOString();
+    setData((current) => ({
+      ...current,
+      categories: current.categories.filter((entry) => entry.id !== category.id),
+      tasks: current.tasks.map((task) => task.categoryId === category.id ? { ...task, categoryId: "other", updatedAt: stamp } : task),
+    }));
+    notify(`已删除分类“${category.name}”`);
+  }
+
   const dueTasks = useMemo(() => data.tasks.filter((task) => task.completed.some((_, index) => {
     const status = reviewStatus(task, index);
     return status === "due" || status === "overdue";
@@ -613,7 +631,7 @@ export function StudyApp() {
         {tab === "settings" && <section className="page-stack settings-grid">
           <div className="panel settings-card"><PanelTitle title="设备同步" subtitle="使用同一个同步码连接手机与电脑" /><div className="sync-box"><label>同步码<input value={syncInput} onChange={(event) => setSyncInput(normalizeSyncCode(event.target.value))} placeholder="XXXX-XXXX-XXXX" autoComplete="off" /></label><div className={`sync-feedback ${syncStatus}`}><span className={`sync-dot ${syncStatus}`} /><div><strong>{syncStatus === "synced" ? "同步正常" : syncStatus === "syncing" ? "正在同步" : syncStatus === "error" ? "同步未完成" : "本机模式"}</strong><small>{syncMessage}</small></div></div><div className="button-row"><button className="secondary" onClick={generateSyncCode}>生成并启用新同步码</button><button className="primary" onClick={connectSync}>{syncCode ? "重新同步" : "连接已有同步码"}</button></div>{syncCode && <button className="text-button danger-text" onClick={disconnectSync}>断开当前同步码</button>}<p>同步码相当于密码，请不要发给其他人。第一次在电脑生成并启用后，手机只需输入相同同步码并点击连接。</p></div></div>
           <div className="panel settings-card"><PanelTitle title="专注偏好" subtitle="调整你的默认节奏" /><div className="form-grid"><label>专注时长（分钟）<input type="number" min="1" max="180" value={data.settings.focusMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, focusMinutes: Number(event.target.value) || 25 } }))} /></label><label>休息时长（分钟）<input type="number" min="1" max="60" value={data.settings.breakMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, breakMinutes: Number(event.target.value) || 5 } }))} /></label><label>每日目标（分钟）<input type="number" min="10" max="1440" value={data.settings.dailyGoalMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, dailyGoalMinutes: Number(event.target.value) || 180 } }))} /></label></div></div>
-          <div className="panel settings-card"><PanelTitle title="任务分类" subtitle="用大类管理你的学习方向" /><div className="category-manage">{data.categories.map((category) => <span key={category.id}><i style={{ background: category.color }} />{category.name}</span>)}</div><form className="inline-form" onSubmit={addCategory}><input value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="新增分类名称" /><button className="secondary">添加</button></form></div>
+          <div className="panel settings-card"><PanelTitle title="任务分类" subtitle="用大类管理你的学习方向" /><div className="category-manage">{data.categories.map((category) => <span key={category.id}><i style={{ background: category.color }} />{category.name}{!["west", "english", "politics", "other"].includes(category.id) && <button type="button" onClick={() => deleteCategory(category)} aria-label={`删除分类 ${category.name}`}>×</button>}</span>)}</div><form className="inline-form" onSubmit={addCategory}><input value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="新增分类名称" /><button className="secondary">添加</button></form><p className="manage-hint">西综、英语、政治和其他是默认分类；你自己添加的分类右侧会显示删除按钮。</p></div>
           <div className="panel settings-card"><PanelTitle title="备份与迁移" subtitle="随时保留一份自己的数据" /><div className="button-row"><button className="secondary" onClick={exportData}>导出 JSON 备份</button><label className="secondary file-button">导入备份<input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void importData(event.target.files[0])} /></label></div></div>
         </section>}
       </main>
@@ -645,5 +663,5 @@ function TodayTask({ task, category, onToggle }: { task: Task; category?: Catego
 }
 
 function TaskCard({ task, category, onToggle, onEdit, onDelete, onRemoveTag, onFocus }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void; onEdit: () => void; onDelete: () => void; onRemoveTag: (tag: string) => void; onFocus: () => void }) {
-  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: category?.color, background: `${category?.color}18` }}>{category?.name || "其他"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <button type="button" key={tag} onClick={() => onRemoveTag(tag)} title={`删除标签 ${tag}`}>#{tag}<span>×</span></button>) : <span>#未添加标签</span>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务">编辑</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(addDays(task.startDate, days))}</span><small>{days} 天</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除</button></div></div></article>;
+  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: category?.color, background: `${category?.color}18` }}>{category?.name || "其他"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <button type="button" key={tag} onClick={() => onRemoveTag(tag)} title={`删除标签 ${tag}`}>#{tag}<span>删除 ×</span></button>) : <button type="button" onClick={onEdit}>＋ 添加标签</button>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务和标签">编辑任务</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(addDays(task.startDate, days))}</span><small>{days} 天</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onEdit}>管理标签</button><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除任务</button></div></div></article>;
 }
