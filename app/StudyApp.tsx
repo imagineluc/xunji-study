@@ -1,0 +1,587 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+
+const INTERVALS = [1, 2, 4, 7, 15];
+const LOCAL_DATA_KEY = "xunji-data-v1";
+const LOCAL_SYNC_KEY = "xunji-sync-v1";
+const LOCAL_TIMER_KEY = "xunji-timer-v1";
+
+type Tab = "today" | "tasks" | "focus" | "stats" | "settings";
+type Category = { id: string; name: string; color: string };
+type Task = {
+  id: string;
+  title: string;
+  categoryId: string;
+  tags: string[];
+  startDate: string;
+  completed: boolean[];
+  createdAt: string;
+  updatedAt: string;
+};
+type FocusSession = {
+  id: string;
+  taskId: string;
+  startedAt: string;
+  endedAt: string;
+  durationSec: number;
+  status: "completed" | "stopped";
+  updatedAt: string;
+};
+type AppData = {
+  version: 1;
+  tasks: Task[];
+  sessions: FocusSession[];
+  categories: Category[];
+  settings: { focusMinutes: number; breakMinutes: number; dailyGoalMinutes: number };
+};
+type TimerState = {
+  taskId: string;
+  startedAt: string;
+  endAt: number;
+  durationSec: number;
+  running: boolean;
+  pausedRemaining: number;
+};
+
+const DEFAULT_DATA: AppData = {
+  version: 1,
+  tasks: [],
+  sessions: [],
+  categories: [
+    { id: "west", name: "西综", color: "#4d6c8f" },
+    { id: "english", name: "英语", color: "#a7604f" },
+    { id: "politics", name: "政治", color: "#7a6a9b" },
+    { id: "other", name: "其他", color: "#6d7b72" },
+  ],
+  settings: { focusMinutes: 25, breakMinutes: 5, dailyGoalMinutes: 180 },
+};
+
+const NAV_ITEMS: { id: Tab; label: string; icon: string }[] = [
+  { id: "today", label: "今日", icon: "⌂" },
+  { id: "tasks", label: "任务", icon: "□" },
+  { id: "focus", label: "专注", icon: "◷" },
+  { id: "stats", label: "统计", icon: "▥" },
+  { id: "settings", label: "设置", icon: "⚙" },
+];
+
+function uid(prefix: string) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function localISO(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function addDays(value: string, days: number) {
+  const date = parseDate(value);
+  date.setDate(date.getDate() + days);
+  return localISO(date);
+}
+
+function dateLabel(value: string, withWeekday = false) {
+  return new Intl.DateTimeFormat("zh-CN", withWeekday
+    ? { month: "numeric", day: "numeric", weekday: "short" }
+    : { month: "numeric", day: "numeric" }).format(parseDate(value));
+}
+
+function reviewStatus(task: Task, index: number) {
+  if (task.completed[index]) return "done" as const;
+  const due = addDays(task.startDate, INTERVALS[index]);
+  const today = localISO();
+  if (due < today) return "overdue" as const;
+  if (due === today) return "due" as const;
+  return "future" as const;
+}
+
+function isTaskFinished(task: Task) {
+  return task.completed.every(Boolean);
+}
+
+function normalizeData(value: unknown): AppData {
+  if (!value || typeof value !== "object") return DEFAULT_DATA;
+  const input = value as Partial<AppData>;
+  return {
+    version: 1,
+    tasks: Array.isArray(input.tasks) ? input.tasks.map((task) => ({
+      ...task,
+      completed: INTERVALS.map((_, index) => Boolean(task.completed?.[index])),
+      tags: Array.isArray(task.tags) ? task.tags : [],
+      updatedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
+    })) : [],
+    sessions: Array.isArray(input.sessions) ? input.sessions : [],
+    categories: Array.isArray(input.categories) && input.categories.length ? input.categories : DEFAULT_DATA.categories,
+    settings: { ...DEFAULT_DATA.settings, ...(input.settings || {}) },
+  };
+}
+
+function mergeByUpdatedAt<T extends { id: string; updatedAt: string }>(local: T[], remote: T[]) {
+  const map = new Map<string, T>();
+  [...local, ...remote].forEach((entry) => {
+    const current = map.get(entry.id);
+    if (!current || entry.updatedAt >= current.updatedAt) map.set(entry.id, entry);
+  });
+  return [...map.values()];
+}
+
+function mergeData(local: AppData, remote: AppData): AppData {
+  const categories = new Map(local.categories.map((category) => [category.id, category]));
+  remote.categories.forEach((category) => categories.set(category.id, category));
+  return {
+    version: 1,
+    tasks: mergeByUpdatedAt(local.tasks, remote.tasks),
+    sessions: mergeByUpdatedAt(local.sessions, remote.sessions),
+    categories: [...categories.values()],
+    settings: remote.settings || local.settings,
+  };
+}
+
+function minutesLabel(seconds: number) {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+}
+
+export function StudyApp() {
+  const [data, setData] = useState<AppData>(DEFAULT_DATA);
+  const [tab, setTab] = useState<Tab>("today");
+  const [hydrated, setHydrated] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [taskFilter, setTaskFilter] = useState<"active" | "all" | "done">("active");
+  const [toast, setToast] = useState("");
+  const [syncCode, setSyncCode] = useState("");
+  const [syncInput, setSyncInput] = useState("");
+  const [syncStatus, setSyncStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
+  const [timer, setTimer] = useState<TimerState | null>(null);
+  const [timerTaskId, setTimerTaskId] = useState("");
+  const [now, setNow] = useState(Date.now());
+  const [newCategory, setNewCategory] = useState("");
+  const revisionRef = useRef(0);
+  const skipAutoSync = useRef(true);
+
+  const today = localISO();
+  const taskMap = useMemo(() => new Map(data.tasks.map((task) => [task.id, task])), [data.tasks]);
+  const categoryMap = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_DATA_KEY);
+      if (saved) setData(normalizeData(JSON.parse(saved)));
+      const sync = JSON.parse(localStorage.getItem(LOCAL_SYNC_KEY) || "null");
+      if (sync?.code) {
+        setSyncCode(sync.code);
+        setSyncInput(sync.code);
+        revisionRef.current = Number(sync.revision) || 0;
+      }
+      const savedTimer = JSON.parse(localStorage.getItem(LOCAL_TIMER_KEY) || "null");
+      if (savedTimer?.taskId) setTimer(savedTimer);
+    } catch { /* start clean if a local cache is damaged */ }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(LOCAL_DATA_KEY, JSON.stringify(data));
+  }, [data, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (timer) localStorage.setItem(LOCAL_TIMER_KEY, JSON.stringify(timer));
+    else localStorage.removeItem(LOCAL_TIMER_KEY);
+  }, [timer, hydrated]);
+
+  useEffect(() => {
+    if (!timer?.running) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [timer?.running]);
+
+  const remaining = timer ? (timer.running ? Math.max(0, Math.ceil((timer.endAt - now) / 1000)) : timer.pausedRemaining) : 0;
+
+  useEffect(() => {
+    if (timer?.running && remaining === 0) finishTimer("completed", true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, timer?.running]);
+
+  useEffect(() => {
+    if (!hydrated || !syncCode) return;
+    if (skipAutoSync.current) {
+      skipAutoSync.current = false;
+      void pullAndMerge(syncCode);
+      return;
+    }
+    const id = window.setTimeout(() => void pushData(syncCode, data), 1400);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, syncCode, hydrated]);
+
+  function notify(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 2200);
+  }
+
+  function updateTask(id: string, patch: Partial<Task>) {
+    setData((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) => task.id === id ? { ...task, ...patch, updatedAt: new Date().toISOString() } : task),
+    }));
+  }
+
+  function toggleReview(taskId: string, index: number) {
+    const task = taskMap.get(taskId);
+    if (!task) return;
+    const completed = [...task.completed];
+    completed[index] = !completed[index];
+    updateTask(taskId, { completed });
+    notify(completed[index] ? "复习已完成 ✓" : "已恢复为待复习");
+  }
+
+  function createTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const title = String(form.get("title") || "").trim();
+    if (!title) return;
+    const stamp = new Date().toISOString();
+    const tags = String(form.get("tags") || "").split(/[，,]/).map((tag) => tag.trim()).filter(Boolean);
+    const task: Task = {
+      id: uid("task"),
+      title,
+      categoryId: String(form.get("category") || "other"),
+      tags: [...new Set(tags)],
+      startDate: String(form.get("startDate") || today),
+      completed: INTERVALS.map(() => false),
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    setData((current) => ({ ...current, tasks: [task, ...current.tasks] }));
+    setTimerTaskId(task.id);
+    setShowAdd(false);
+    notify("任务已添加，复习节点已排好");
+  }
+
+  function editTask(task: Task) {
+    const title = window.prompt("修改任务名称", task.title)?.trim();
+    if (title) updateTask(task.id, { title });
+  }
+
+  function deleteTask(task: Task) {
+    if (!window.confirm(`确定删除“${task.title}”吗？相关专注记录会保留。`)) return;
+    setData((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== task.id) }));
+    notify("任务已删除");
+  }
+
+  function startTimer() {
+    const taskId = timerTaskId || data.tasks.find((task) => !isTaskFinished(task))?.id;
+    if (!taskId) return notify("请先选择或添加一个任务");
+    const durationSec = Math.max(1, data.settings.focusMinutes) * 60;
+    const startedAt = new Date().toISOString();
+    setTimer({ taskId, startedAt, durationSec, endAt: Date.now() + durationSec * 1000, running: true, pausedRemaining: durationSec });
+    setNow(Date.now());
+    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
+  }
+
+  function pauseTimer() {
+    if (!timer?.running) return;
+    setTimer({ ...timer, running: false, pausedRemaining: remaining });
+  }
+
+  function resumeTimer() {
+    if (!timer || timer.running) return;
+    setTimer({ ...timer, running: true, endAt: Date.now() + timer.pausedRemaining * 1000 });
+    setNow(Date.now());
+  }
+
+  function finishTimer(status: "completed" | "stopped", natural = false) {
+    if (!timer) return;
+    const elapsed = natural ? timer.durationSec : Math.max(60, timer.durationSec - remaining);
+    const stamp = new Date().toISOString();
+    const session: FocusSession = {
+      id: uid("focus"),
+      taskId: timer.taskId,
+      startedAt: timer.startedAt,
+      endedAt: stamp,
+      durationSec: elapsed,
+      status,
+      updatedAt: stamp,
+    };
+    setData((current) => ({ ...current, sessions: [session, ...current.sessions] }));
+    setTimer(null);
+    if (natural && "Notification" in window && Notification.permission === "granted") {
+      new Notification("本轮专注完成", { body: taskMap.get(session.taskId)?.title || "做得很好，休息一下吧。" });
+    }
+    notify(natural ? "本轮专注完成，已计入统计" : "本次专注时长已保存");
+  }
+
+  async function syncRequest(code: string, body: Record<string, unknown>) {
+    return fetch("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, code }) });
+  }
+
+  async function pullAndMerge(code: string) {
+    setSyncStatus("syncing");
+    try {
+      const response = await syncRequest(code, { action: "pull" });
+      if (!response.ok) throw new Error("pull failed");
+      const result = await response.json();
+      revisionRef.current = result.revision || 0;
+      if (result.found && result.data) setData((current) => mergeData(current, normalizeData(result.data)));
+      else await pushData(code, data, 0);
+      localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify({ code, revision: revisionRef.current }));
+      setSyncStatus("synced");
+    } catch {
+      setSyncStatus("error");
+    }
+  }
+
+  async function pushData(code: string, payload: AppData, forcedRevision?: number) {
+    setSyncStatus("syncing");
+    try {
+      const response = await syncRequest(code, { action: "push", data: payload, revision: forcedRevision ?? revisionRef.current });
+      if (response.status === 409) {
+        const conflict = await response.json();
+        const merged = conflict.data ? mergeData(payload, normalizeData(conflict.data)) : payload;
+        const retry = await syncRequest(code, { action: "push", data: merged, revision: conflict.revision || 0 });
+        if (!retry.ok) throw new Error("retry failed");
+        const result = await retry.json();
+        revisionRef.current = result.revision;
+        setData(merged);
+      } else {
+        if (!response.ok) throw new Error("push failed");
+        const result = await response.json();
+        revisionRef.current = result.revision;
+      }
+      localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify({ code, revision: revisionRef.current }));
+      setSyncStatus("synced");
+    } catch {
+      setSyncStatus("error");
+    }
+  }
+
+  function normalizeSyncCode(value: string) {
+    const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+    return clean.match(/.{1,4}/g)?.join("-") || "";
+  }
+
+  async function connectSync() {
+    const code = normalizeSyncCode(syncInput);
+    if (code.replace(/-/g, "").length < 12) return notify("同步码至少需要 12 位");
+    setSyncCode(code);
+    setSyncInput(code);
+    revisionRef.current = 0;
+    skipAutoSync.current = true;
+    localStorage.setItem(LOCAL_SYNC_KEY, JSON.stringify({ code, revision: 0 }));
+    await pullAndMerge(code);
+    notify("已连接，之后会自动同步");
+  }
+
+  function generateSyncCode() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const values = crypto.getRandomValues(new Uint8Array(12));
+    const code = Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
+    setSyncInput(code.match(/.{1,4}/g)?.join("-") || code);
+  }
+
+  function disconnectSync() {
+    setSyncCode("");
+    setSyncInput("");
+    revisionRef.current = 0;
+    localStorage.removeItem(LOCAL_SYNC_KEY);
+    setSyncStatus("local");
+    notify("已断开云同步，本机数据仍保留");
+  }
+
+  function exportData() {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `循记备份-${today}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importData(file: File) {
+    try {
+      const parsed = normalizeData(JSON.parse(await file.text()));
+      if (!window.confirm("导入后将与当前数据合并，是否继续？")) return;
+      setData((current) => mergeData(current, parsed));
+      notify("备份已导入");
+    } catch { notify("无法识别这个备份文件"); }
+  }
+
+  function addCategory(event: FormEvent) {
+    event.preventDefault();
+    const name = newCategory.trim();
+    if (!name) return;
+    const palette = ["#3f7c71", "#9a7045", "#805c75", "#55758a"];
+    setData((current) => ({
+      ...current,
+      categories: [...current.categories, { id: uid("cat"), name, color: palette[current.categories.length % palette.length] }],
+    }));
+    setNewCategory("");
+  }
+
+  const dueTasks = useMemo(() => data.tasks.filter((task) => task.completed.some((_, index) => {
+    const status = reviewStatus(task, index);
+    return status === "due" || status === "overdue";
+  })), [data.tasks]);
+
+  const visibleTasks = useMemo(() => data.tasks.filter((task) => {
+    const matchesCategory = categoryFilter === "all" || task.categoryId === categoryFilter;
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query || task.title.toLowerCase().includes(query) || task.tags.some((tag) => tag.toLowerCase().includes(query));
+    const done = isTaskFinished(task);
+    const matchesState = taskFilter === "all" || (taskFilter === "done" ? done : !done);
+    return matchesCategory && matchesSearch && matchesState;
+  }), [data.tasks, categoryFilter, search, taskFilter]);
+
+  const todaySessions = data.sessions.filter((session) => localISO(new Date(session.startedAt)) === today);
+  const todaySeconds = todaySessions.reduce((sum, session) => sum + session.durationSec, 0);
+  const totalSeconds = data.sessions.reduce((sum, session) => sum + session.durationSec, 0);
+  const completedReviews = data.tasks.reduce((sum, task) => sum + task.completed.filter(Boolean).length, 0);
+  const totalReviews = data.tasks.length * INTERVALS.length;
+  const weekly = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - index));
+    const iso = localISO(date);
+    const seconds = data.sessions.filter((session) => localISO(new Date(session.startedAt)) === iso).reduce((sum, session) => sum + session.durationSec, 0);
+    return { iso, label: new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(date), minutes: Math.round(seconds / 60) };
+  });
+  const maxDayMinutes = Math.max(30, ...weekly.map((day) => day.minutes));
+  const categoryStats = data.categories.map((category) => {
+    const taskIds = new Set(data.tasks.filter((task) => task.categoryId === category.id).map((task) => task.id));
+    const seconds = data.sessions.filter((session) => taskIds.has(session.taskId)).reduce((sum, session) => sum + session.durationSec, 0);
+    return { ...category, seconds };
+  }).sort((a, b) => b.seconds - a.seconds);
+  const topTasks = data.tasks.map((task) => ({
+    task,
+    seconds: data.sessions.filter((session) => session.taskId === task.id).reduce((sum, session) => sum + session.durationSec, 0),
+  })).filter((entry) => entry.seconds > 0).sort((a, b) => b.seconds - a.seconds).slice(0, 5);
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <button className="brand" onClick={() => setTab("today")} aria-label="返回今日">
+          <span className="brand-mark">循</span><span><strong>循记</strong><small>学习节奏中心</small></span>
+        </button>
+        <nav>{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
+        <div className="sidebar-foot">
+          <span className={`sync-dot ${syncStatus}`} />
+          <div><strong>{syncCode ? "云端已连接" : "仅保存在本机"}</strong><small>{syncStatus === "syncing" ? "正在同步…" : syncStatus === "error" ? "离线，稍后重试" : "数据状态正常"}</small></div>
+        </div>
+      </aside>
+
+      <main className="main">
+        <header className="topbar">
+          <div><p className="eyebrow">{dateLabel(today, true)}</p><h1>{NAV_ITEMS.find((item) => item.id === tab)?.label}</h1></div>
+          <button className="primary" onClick={() => setShowAdd(true)}>＋ 新建任务</button>
+        </header>
+
+        {tab === "today" && <section className="page-stack">
+          <div className="hero-card">
+            <div><p className="eyebrow">TODAY&apos;S RHYTHM</p><h2>{dueTasks.length ? `今天有 ${dueTasks.length} 个任务需要照顾` : "今天的复习已经清空"}</h2><p>先完成到期复习，再用一轮专注推进最重要的任务。</p></div>
+            <div className="hero-progress"><strong>{Math.min(100, Math.round(todaySeconds / 60 / data.settings.dailyGoalMinutes * 100))}%</strong><span>今日专注目标</span></div>
+          </div>
+          <div className="metric-grid">
+            <Metric label="待复习任务" value={String(dueTasks.length)} note={dueTasks.some((task) => task.completed.some((_, i) => reviewStatus(task, i) === "overdue")) ? "包含逾期节点" : "节奏正常"} tone="warm" />
+            <Metric label="今日专注" value={minutesLabel(todaySeconds)} note={`${todaySessions.length} 个番茄记录`} />
+            <Metric label="复习总进度" value={totalReviews ? `${Math.round(completedReviews / totalReviews * 100)}%` : "0%"} note={`完成 ${completedReviews} 个节点`} />
+            <Metric label="累计投入" value={minutesLabel(totalSeconds)} note={`${data.sessions.length} 次专注`} />
+          </div>
+          <div className="content-grid">
+            <div className="panel wide">
+              <PanelTitle title="今日复习" subtitle="点击节点即可完成打卡" action={dueTasks.length ? `${dueTasks.length} 项` : "已清空"} />
+              {dueTasks.length ? <div className="review-list">{dueTasks.slice(0, 6).map((task) => <TodayTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} />)}</div> : <Empty icon="✓" title="今日没有到期任务" text="可以提前复习，或者开始一轮专注。" />}
+            </div>
+            <div className="panel focus-quick">
+              <PanelTitle title="快速专注" subtitle={`${data.settings.focusMinutes} 分钟一轮`} />
+              <select value={timerTaskId} onChange={(event) => setTimerTaskId(event.target.value)} aria-label="选择专注任务">
+                <option value="">选择一个任务</option>{data.tasks.filter((task) => !isTaskFinished(task)).map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
+              </select>
+              <div className="mini-timer">{data.settings.focusMinutes}<small>分钟</small></div>
+              <button className="primary block" onClick={() => { startTimer(); setTab("focus"); }}>开始专注</button>
+            </div>
+          </div>
+        </section>}
+
+        {tab === "tasks" && <section className="page-stack">
+          <div className="filter-bar">
+            <div className="category-tabs"><button className={categoryFilter === "all" ? "active" : ""} onClick={() => setCategoryFilter("all")}>全部</button>{data.categories.map((category) => <button key={category.id} className={categoryFilter === category.id ? "active" : ""} onClick={() => setCategoryFilter(category.id)}><i style={{ background: category.color }} />{category.name}</button>)}</div>
+            <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务或标签" aria-label="搜索任务或标签" />
+          </div>
+          <div className="subfilters"><button className={taskFilter === "active" ? "active" : ""} onClick={() => setTaskFilter("active")}>进行中</button><button className={taskFilter === "all" ? "active" : ""} onClick={() => setTaskFilter("all")}>全部</button><button className={taskFilter === "done" ? "active" : ""} onClick={() => setTaskFilter("done")}>已完成</button><span>{visibleTasks.length} 个任务</span></div>
+          {visibleTasks.length ? <div className="task-grid">{visibleTasks.map((task) => <TaskCard key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} onEdit={() => editTask(task)} onDelete={() => deleteTask(task)} onFocus={() => { setTimerTaskId(task.id); setTab("focus"); }} />)}</div> : <div className="panel"><Empty icon="□" title="没有符合条件的任务" text="试试切换分类，或者新建一个任务。" /></div>}
+        </section>}
+
+        {tab === "focus" && <section className="page-stack focus-layout">
+          <div className="panel timer-panel">
+            <p className="eyebrow">FOCUS SESSION</p>
+            <select value={timer?.taskId || timerTaskId} onChange={(event) => setTimerTaskId(event.target.value)} disabled={Boolean(timer)} aria-label="当前专注任务"><option value="">选择专注任务</option>{data.tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>
+            <div className={`timer-ring ${timer?.running ? "running" : ""}`} style={{ "--progress": timer ? `${Math.max(0, 100 - remaining / timer.durationSec * 100)}%` : "0%" } as React.CSSProperties}>
+              <div><strong>{String(Math.floor((timer ? remaining : data.settings.focusMinutes * 60) / 60)).padStart(2, "0")}:{String((timer ? remaining : 0) % 60).padStart(2, "0")}</strong><span>{timer ? (timer.running ? "保持专注" : "已暂停") : "准备开始"}</span></div>
+            </div>
+            <div className="timer-actions">{!timer ? <button className="primary large" onClick={startTimer}>开始专注</button> : <><button className="secondary large" onClick={timer.running ? pauseTimer : resumeTimer}>{timer.running ? "暂停" : "继续"}</button><button className="ghost large" onClick={() => finishTimer("stopped")}>结束并保存</button></>}</div>
+            <p className="timer-tip">锁屏或切换应用后，重新打开仍会按实际时间恢复。</p>
+          </div>
+          <div className="panel session-panel">
+            <PanelTitle title="今日记录" subtitle={`累计 ${minutesLabel(todaySeconds)}`} />
+            {todaySessions.length ? <div className="session-list">{todaySessions.map((session) => <div key={session.id}><span className="session-dot" /><div><strong>{taskMap.get(session.taskId)?.title || "已删除任务"}</strong><small>{new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(session.startedAt))}</small></div><b>{minutesLabel(session.durationSec)}</b></div>)}</div> : <Empty icon="◷" title="今天还没有专注记录" text="完成第一轮后，时间会自动记在这里。" />}
+          </div>
+        </section>}
+
+        {tab === "stats" && <section className="page-stack">
+          <div className="metric-grid stats-metrics"><Metric label="累计专注" value={minutesLabel(totalSeconds)} note={`${data.sessions.length} 次记录`} /><Metric label="今日专注" value={minutesLabel(todaySeconds)} note={`目标 ${data.settings.dailyGoalMinutes} 分钟`} /><Metric label="完成复习" value={String(completedReviews)} note={`共 ${totalReviews} 个节点`} /><Metric label="活跃任务" value={String(data.tasks.filter((task) => !isTaskFinished(task)).length)} note={`共 ${data.tasks.length} 个任务`} /></div>
+          <div className="content-grid stats-grid">
+            <div className="panel wide"><PanelTitle title="最近 7 天" subtitle="每日有效专注分钟" /><div className="bar-chart">{weekly.map((day) => <div key={day.iso} className={day.iso === today ? "today" : ""}><span>{day.minutes || ""}</span><i style={{ height: `${Math.max(5, day.minutes / maxDayMinutes * 100)}%` }} /><small>{day.label}</small></div>)}</div></div>
+            <div className="panel"><PanelTitle title="分类投入" subtitle="累计专注时长" />{categoryStats.some((entry) => entry.seconds) ? <div className="category-stats">{categoryStats.map((entry) => <div key={entry.id}><span><i style={{ background: entry.color }} />{entry.name}</span><strong>{minutesLabel(entry.seconds)}</strong><div><i style={{ width: `${totalSeconds ? entry.seconds / totalSeconds * 100 : 0}%`, background: entry.color }} /></div></div>)}</div> : <Empty icon="▥" title="还没有统计数据" text="完成番茄钟后会自动生成。" />}</div>
+          </div>
+          <div className="panel"><PanelTitle title="投入最多的任务" subtitle="帮助你看见时间去了哪里" />{topTasks.length ? <div className="ranking">{topTasks.map((entry, index) => <div key={entry.task.id}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{entry.task.title}</strong><small>{categoryMap.get(entry.task.categoryId)?.name || "其他"}</small></span><em>{minutesLabel(entry.seconds)}</em></div>)}</div> : <Empty icon="↗" title="排行榜等待第一条记录" text="开始专注后，这里会按累计时间排序。" />}</div>
+        </section>}
+
+        {tab === "settings" && <section className="page-stack settings-grid">
+          <div className="panel settings-card"><PanelTitle title="设备同步" subtitle="使用同一个同步码连接手机与电脑" /><div className="sync-box"><label>同步码<input value={syncInput} onChange={(event) => setSyncInput(normalizeSyncCode(event.target.value))} placeholder="XXXX-XXXX-XXXX" autoComplete="off" /></label><div className="button-row"><button className="secondary" onClick={generateSyncCode}>生成安全同步码</button><button className="primary" onClick={connectSync}>{syncCode ? "立即同步" : "连接同步"}</button></div>{syncCode && <button className="text-button danger-text" onClick={disconnectSync}>断开当前同步码</button>}<p>同步码相当于密码，请不要发给其他人。数据会先保存在本机，联网后自动同步。</p></div></div>
+          <div className="panel settings-card"><PanelTitle title="专注偏好" subtitle="调整你的默认节奏" /><div className="form-grid"><label>专注时长（分钟）<input type="number" min="1" max="180" value={data.settings.focusMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, focusMinutes: Number(event.target.value) || 25 } }))} /></label><label>休息时长（分钟）<input type="number" min="1" max="60" value={data.settings.breakMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, breakMinutes: Number(event.target.value) || 5 } }))} /></label><label>每日目标（分钟）<input type="number" min="10" max="1440" value={data.settings.dailyGoalMinutes} onChange={(event) => setData((current) => ({ ...current, settings: { ...current.settings, dailyGoalMinutes: Number(event.target.value) || 180 } }))} /></label></div></div>
+          <div className="panel settings-card"><PanelTitle title="任务分类" subtitle="用大类管理你的学习方向" /><div className="category-manage">{data.categories.map((category) => <span key={category.id}><i style={{ background: category.color }} />{category.name}</span>)}</div><form className="inline-form" onSubmit={addCategory}><input value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="新增分类名称" /><button className="secondary">添加</button></form></div>
+          <div className="panel settings-card"><PanelTitle title="备份与迁移" subtitle="随时保留一份自己的数据" /><div className="button-row"><button className="secondary" onClick={exportData}>导出 JSON 备份</button><label className="secondary file-button">导入备份<input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void importData(event.target.files[0])} /></label></div></div>
+        </section>}
+      </main>
+
+      <nav className="mobile-nav">{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
+
+      {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title"><div className="modal-head"><div><p className="eyebrow">NEW MEMORY</p><h2 id="new-task-title">添加学习任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div><form onSubmit={createTask}><label>任务名称<input name="title" autoFocus maxLength={100} placeholder="例如：英语 Unit 3 单词" required /></label><div className="form-grid"><label>大类<select name="category" defaultValue={data.categories[0]?.id}>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input name="startDate" type="date" defaultValue={today} required /></label></div><label>标签<input name="tags" placeholder="例如：单词、错题、背诵（逗号分隔）" /></label><div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">添加并排期</button></div></form></div></div>}
+      {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  );
+}
+
+function Metric({ label, value, note, tone = "" }: { label: string; value: string; note: string; tone?: string }) {
+  return <div className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
+}
+
+function PanelTitle({ title, subtitle, action }: { title: string; subtitle: string; action?: string }) {
+  return <div className="panel-title"><div><h3>{title}</h3><p>{subtitle}</p></div>{action && <span>{action}</span>}</div>;
+}
+
+function Empty({ icon, title, text }: { icon: string; title: string; text: string }) {
+  return <div className="empty"><span>{icon}</span><strong>{title}</strong><p>{text}</p></div>;
+}
+
+function TodayTask({ task, category, onToggle }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void }) {
+  const actionable = INTERVALS.map((_, index) => ({ index, status: reviewStatus(task, index), date: addDays(task.startDate, INTERVALS[index]) })).filter((entry) => entry.status === "due" || entry.status === "overdue");
+  return <article className="today-task"><i style={{ background: category?.color || "#777" }} /><div className="task-info"><span>{category?.name || "其他"}</span><strong>{task.title}</strong><small>{task.tags.join(" · ") || "暂无标签"}</small></div><div className="today-actions">{actionable.map((entry) => <button key={entry.index} className={entry.status} onClick={() => onToggle(task.id, entry.index)}><span>{entry.status === "overdue" ? "已逾期" : "今天"}</span><small>第 {entry.index + 1} 次 · {dateLabel(entry.date)}</small></button>)}</div></article>;
+}
+
+function TaskCard({ task, category, onToggle, onEdit, onDelete, onFocus }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void; onEdit: () => void; onDelete: () => void; onFocus: () => void }) {
+  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: category?.color, background: `${category?.color}18` }}>{category?.name || "其他"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <span key={tag}>#{tag}</span>) : <span>#未添加标签</span>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务">•••</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(addDays(task.startDate, days))}</span><small>{days} 天</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除</button></div></div></article>;
+}

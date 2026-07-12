@@ -1,0 +1,11 @@
+{
+  "name": "循记 · 艾宾浩斯学习助手",
+  "short_name": "循记",
+  "description": "分类复习、番茄专注与学习统计",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f1",
+  "theme_color": "#285c46",
+  "lang": "zh-CN",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
