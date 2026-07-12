@@ -24,8 +24,9 @@
   .brand small { @apply mt-0.5 text-[10px] font-semibold tracking-[.04em] text-zinc-400; }
   .sidebar nav { @apply grid gap-1; }
   .sidebar nav button { @apply flex w-full items-center gap-3 rounded-2xl border-0 bg-transparent px-3.5 py-3 text-left font-semibold text-zinc-500 transition-all duration-300 ease-out hover:translate-x-0.5 hover:bg-white hover:text-zinc-900 hover:shadow-sm active:scale-[0.98]; }
-  .sidebar nav button span { @apply grid size-6 place-items-center text-base; }
+  .sidebar nav button span { @apply grid size-7 place-items-center rounded-[9px] bg-zinc-100/80 text-[15px] leading-none text-zinc-500 shadow-sm ring-1 ring-zinc-200/60 transition-all duration-300 ease-out; }
   .sidebar nav button.active { @apply bg-white font-bold text-emerald-700 shadow-[0_8px_22px_rgba(15,23,42,.06)] ring-1 ring-zinc-100; }
+  .sidebar nav button.active span { @apply bg-emerald-600 text-white shadow-[0_6px_14px_rgba(5,150,105,.24)] ring-0; }
   .sidebar-foot { @apply mt-auto flex items-start gap-2.5 border-t border-zinc-100/80 px-2 pt-5; }
   .sidebar-foot strong, .sidebar-foot small { @apply block; }
   .sidebar-foot strong { @apply text-xs font-bold text-zinc-700; }
@@ -54,6 +55,7 @@
   .hero-card .eyebrow { @apply text-emerald-100/80; }
   .hero-card h2 { @apply m-0 max-w-2xl text-[clamp(2rem,3.8vw,3.35rem)] font-bold leading-[1.13] tracking-[-.045em]; }
   .hero-card p:not(.eyebrow) { @apply mb-0 mt-4 max-w-xl text-[15px] leading-relaxed text-emerald-50/85; }
+  .hero-action { @apply mt-5 inline-flex items-center rounded-full border border-white/25 bg-white/14 px-4 py-2 text-sm font-bold text-white shadow-sm backdrop-blur-md transition-all duration-200 ease-in-out hover:scale-[1.02] hover:bg-white/22 active:scale-[0.98]; }
   .hero-progress { @apply ml-8 grid size-40 shrink-0 place-content-center rounded-full border border-white/25 bg-white/10 text-center shadow-inner shadow-white/10 backdrop-blur-xl; }
   .hero-progress strong { @apply text-[34px] font-light tracking-[-.04em]; }
   .hero-progress span { @apply mt-2 text-[10px] font-semibold tracking-[.08em] text-emerald-50/85; }
@@ -125,6 +127,7 @@
   .review-track button.done { @apply border-emerald-200 bg-emerald-50 text-emerald-700; }
   .review-track button.done i { @apply bg-emerald-600 text-white; }
   .review-track button.due { @apply border-amber-200 bg-amber-50 text-amber-700; }
+  .review-track button.soon { @apply border-amber-100 bg-amber-50/60 text-amber-600; }
   .review-track button.overdue { @apply border-rose-200 bg-rose-50 text-rose-700; }
   .task-card-foot { @apply flex items-center justify-between text-[10px] text-zinc-500; }
   .text-button { @apply rounded-full border-0 bg-transparent px-2.5 py-1.5 font-bold text-emerald-700 transition-all duration-300 ease-out hover:bg-emerald-50 active:scale-[0.98]; }
@@ -246,8 +249,9 @@
   .settings-card { @apply min-h-0; }
   .mobile-nav { @apply fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-zinc-200/80 bg-white/90 px-1.5 pb-[max(.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_30px_rgba(24,24,27,.06)] backdrop-blur-xl; }
   .mobile-nav button { @apply grid place-items-center gap-0.5 border-0 bg-transparent p-1 text-[9px] text-zinc-500 transition-all duration-200 ease-in-out active:scale-[.98]; }
-  .mobile-nav button span { @apply text-lg leading-none; }
+  .mobile-nav button span { @apply grid size-7 place-items-center rounded-[9px] bg-zinc-100/80 text-[15px] leading-none text-zinc-500 shadow-sm ring-1 ring-zinc-200/60 transition-all duration-200 ease-in-out; }
   .mobile-nav button.active { @apply font-bold text-emerald-700; }
+  .mobile-nav button.active span { @apply bg-emerald-600 text-white shadow-[0_5px_12px_rgba(5,150,105,.22)] ring-0; }
   .toast { @apply bottom-20 left-1/2 max-w-[calc(100%-1.75rem)] text-center; }
 }
 
