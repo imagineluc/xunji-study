@@ -556,13 +556,30 @@ export function StudyApp() {
   }
 
   function rescheduleOverdueReviews() {
-    const nodes = data.tasks.flatMap((task) => INTERVALS.map((_, index) => ({ taskId: task.id, index }))
-      .filter((node) => reviewStatus(task, node.index) === "overdue"));
+    const nodes = data.tasks.flatMap((task) => INTERVALS.map((_, index) => ({ task, index }))
+      .filter((node) => reviewStatus(node.task, node.index) === "overdue"))
+      .sort((a, b) => reviewDate(a.task, a.index).localeCompare(reviewDate(b.task, b.index)));
     if (!nodes.length) return notify("没有需要顺延的逾期复习");
     const days = Math.max(3, Math.ceil(nodes.length / 4));
     const perDay = Math.ceil(nodes.length / days);
     if (!window.confirm(`将 ${nodes.length} 个逾期复习平均分摊到未来 ${days} 天，是否继续？`)) return;
-    const schedule = new Map(nodes.map((node, position) => [`${node.taskId}-${node.index}`, addDays(today, Math.floor(position / perDay))]));
+
+    // Today's scheduled reviews stay put. Rescheduled reviews start tomorrow and
+    // avoid every other unfinished review date of the same task.
+    const reservedDates = new Map(data.tasks.map((task) => [task.id, new Set(
+      INTERVALS.flatMap((_, index) => reviewStatus(task, index) !== "overdue" ? [reviewDate(task, index)] : []),
+    )]));
+    const scheduledPerDay = new Map<string, number>();
+    const schedule = new Map<string, string>();
+    nodes.forEach((node) => {
+      const reserved = reservedDates.get(node.task.id)!;
+      let offset = 1;
+      while (reserved.has(addDays(today, offset)) || (scheduledPerDay.get(addDays(today, offset)) || 0) >= perDay) offset += 1;
+      const date = addDays(today, offset);
+      reserved.add(date);
+      scheduledPerDay.set(date, (scheduledPerDay.get(date) || 0) + 1);
+      schedule.set(`${node.task.id}-${node.index}`, date);
+    });
     const stamp = new Date().toISOString();
     setData((current) => ({
       ...current,
