@@ -1,0 +1,36 @@
+name: Deploy Xunji server
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v22
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: tar -czf xunji-release.tgz dist
+      - name: Configure deployment key
+        env:
+          DEPLOY_KEY: ${{ secrets.XUNJI_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.XUNJI_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Upload and activate release
+        env:
+          HOST: ${{ secrets.XUNJI_DEPLOY_HOST }}
+        run: |
+          scp xunji-release.tgz "xunji-deploy@$HOST:/tmp/xunji-release.tgz"
+          ssh "xunji-deploy@$HOST" 'sudo /usr/local/sbin/deploy-xunji /tmp/xunji-release.tgz'
