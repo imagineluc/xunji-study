@@ -17,6 +17,7 @@ systemctl stop xunji
 mv /opt/xunji/dist "$backup"
 mv "$staging/dist" /opt/xunji/dist
 chown -R xunji:xunji /opt/xunji/dist
+node -e 'const fs=require("fs"); const file="/opt/xunji/dist/server/wrangler.json"; const data=JSON.parse(fs.readFileSync(file,"utf8")); delete data.legacy_env; fs.writeFileSync(file, JSON.stringify(data,null,2));'
 systemctl start xunji
 rm -f "$archive"
 echo "Deployed successfully; backup: $backup"
