@@ -1,0 +1,15 @@
+[Unit]
+Description=Xunji study planner
+After=network.target
+
+[Service]
+Type=simple
+User=xunji
+WorkingDirectory=/opt/xunji
+Environment=WRANGLER_LOG=info
+ExecStart=/usr/bin/npm exec -- wrangler dev --local --config /opt/xunji/dist/server/wrangler.json --ip 127.0.0.1 --port 8787 --persist-to /var/lib/xunji
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

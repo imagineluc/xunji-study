@@ -7,7 +7,25 @@ const INTERVALS = [1, 2, 4, 7, 15];
 const LOCAL_DATA_KEY = "xunji-data-v1";
 const LOCAL_SYNC_KEY = "xunji-sync-v1";
 const LOCAL_TIMER_KEY = "xunji-timer-v1";
-const SYNC_API_ORIGIN = (import.meta.env.VITE_SYNC_API_ORIGIN || "").replace(/\/$/, "");
+const SYNC_API_ORIGIN = (import.meta.env.VITE_SYNC_API_ORIGIN || "").trim().replace(/\/$/, "");
+
+function getSyncApiUrl() {
+  if (SYNC_API_ORIGIN) {
+    try {
+      const origin = new URL(SYNC_API_ORIGIN);
+      if (origin.protocol !== "http:" && origin.protocol !== "https:") throw new Error();
+      return new URL("/api/sync", origin).toString();
+    } catch {
+      throw new Error("同步服务地址格式错误，请重新构建移动端 App");
+    }
+  }
+
+  if (Capacitor.isNativePlatform()) {
+    throw new Error("移动端未配置同步服务地址，请重新安装最新版 App");
+  }
+
+  return new URL("/api/sync", window.location.origin).toString();
+}
 
 type Tab = "today" | "tasks" | "focus" | "stats" | "settings";
 type Category = { id: string; name: string; color: string };
@@ -428,7 +446,7 @@ export function StudyApp() {
   }
 
   async function syncRequest(code: string, body: Record<string, unknown>) {
-    const url = `${SYNC_API_ORIGIN}/api/sync`;
+    const url = getSyncApiUrl();
     const data = { ...body, code };
 
     if (Capacitor.isNativePlatform()) {

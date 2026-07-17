@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: "mobile",
+  envDir: "..",
   plugins: [react()],
   publicDir: "../public",
   build: {

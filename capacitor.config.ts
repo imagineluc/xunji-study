@@ -10,6 +10,13 @@ const config: CapacitorConfig = {
     // once the API moves to an HTTPS domain.
     cleartext: true,
   },
+  plugins: {
+    StatusBar: {
+      // Let the page's mint background continue behind the system status bar.
+      overlaysWebView: true,
+      style: "LIGHT",
+    },
+  },
 };
 
 export default config;
