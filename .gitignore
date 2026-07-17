@@ -41,6 +41,13 @@ yarn-error.log*
 # typescript
 next-env.d.ts
 /dist/
+/mobile-dist/
 /.wrangler/
 /outputs/
 /work/
+
+# Android / Capacitor build output
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties

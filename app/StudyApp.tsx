@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 
 const INTERVALS = [1, 2, 4, 7, 15];
 const LOCAL_DATA_KEY = "xunji-data-v1";
 const LOCAL_SYNC_KEY = "xunji-sync-v1";
 const LOCAL_TIMER_KEY = "xunji-timer-v1";
+const SYNC_API_ORIGIN = (import.meta.env.VITE_SYNC_API_ORIGIN || "").replace(/\/$/, "");
 
 type Tab = "today" | "tasks" | "focus" | "stats" | "settings";
 type Category = { id: string; name: string; color: string };
@@ -30,9 +32,11 @@ type FocusSession = {
   status: "completed" | "stopped";
   updatedAt: string;
 };
+type DeletedTask = { id: string; deletedAt: string };
 type AppData = {
   version: 1;
   tasks: Task[];
+  deletedTasks: DeletedTask[];
   sessions: FocusSession[];
   categories: Category[];
   settings: { focusMinutes: number; breakMinutes: number; dailyGoalMinutes: number };
@@ -49,6 +53,7 @@ type TimerState = {
 const DEFAULT_DATA: AppData = {
   version: 1,
   tasks: [],
+  deletedTasks: [],
   sessions: [],
   categories: [],
   settings: { focusMinutes: 25, breakMinutes: 5, dailyGoalMinutes: 180 },
@@ -149,6 +154,9 @@ function normalizeData(value: unknown): AppData {
       reviewDates: INTERVALS.map((days, index) => task.reviewDates?.[index] || addDays(task.startDate || localISO(), days)),
       updatedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
     })).map((task) => ({ ...task, tagChanges: getTagChanges(task) })),
+    deletedTasks: Array.isArray(input.deletedTasks)
+      ? input.deletedTasks.filter((entry): entry is DeletedTask => Boolean(entry?.id && entry?.deletedAt))
+      : [],
     sessions: Array.isArray(input.sessions) ? input.sessions : [],
     categories: Array.isArray(input.categories) ? input.categories : DEFAULT_DATA.categories,
     settings: { ...DEFAULT_DATA.settings, ...(input.settings || {}) },
@@ -167,9 +175,15 @@ function mergeByUpdatedAt<T extends { id: string; updatedAt: string }>(local: T[
 function mergeData(local: AppData, remote: AppData): AppData {
   const categories = new Map(local.categories.map((category) => [category.id, category]));
   remote.categories.forEach((category) => categories.set(category.id, category));
+  const deletedTasks = mergeByUpdatedAt(
+    local.deletedTasks.map((entry) => ({ ...entry, updatedAt: entry.deletedAt })),
+    remote.deletedTasks.map((entry) => ({ ...entry, updatedAt: entry.deletedAt })),
+  ).map(({ id, updatedAt }) => ({ id, deletedAt: updatedAt }));
+  const deletedAt = new Map(deletedTasks.map((entry) => [entry.id, entry.deletedAt]));
   return {
     version: 1,
-    tasks: mergeTasks(local.tasks, remote.tasks),
+    tasks: mergeTasks(local.tasks, remote.tasks).filter((task) => !deletedAt.get(task.id) || task.updatedAt > deletedAt.get(task.id)!),
+    deletedTasks,
     sessions: mergeByUpdatedAt(local.sessions, remote.sessions),
     categories: [...categories.values()],
     settings: remote.settings || local.settings,
@@ -362,7 +376,12 @@ export function StudyApp() {
 
   function deleteTask(task: Task) {
     if (!window.confirm(`确定删除“${task.title}”吗？相关专注记录会保留。`)) return;
-    setData((current) => ({ ...current, tasks: current.tasks.filter((entry) => entry.id !== task.id) }));
+    const deletedAt = new Date().toISOString();
+    setData((current) => ({
+      ...current,
+      tasks: current.tasks.filter((entry) => entry.id !== task.id),
+      deletedTasks: [...current.deletedTasks.filter((entry) => entry.id !== task.id), { id: task.id, deletedAt }],
+    }));
     notify("任务已删除");
   }
 
@@ -409,7 +428,22 @@ export function StudyApp() {
   }
 
   async function syncRequest(code: string, body: Record<string, unknown>) {
-    return fetch("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, code }) });
+    const url = `${SYNC_API_ORIGIN}/api/sync`;
+    const data = { ...body, code };
+
+    if (Capacitor.isNativePlatform()) {
+      const response = await CapacitorHttp.post({
+        url,
+        headers: { "Content-Type": "application/json" },
+        data,
+      });
+      return new Response(typeof response.data === "string" ? response.data : JSON.stringify(response.data), {
+        status: response.status,
+        headers: response.headers,
+      });
+    }
+
+    return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
   }
 
   async function pullAndMerge(code: string) {
