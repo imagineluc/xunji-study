@@ -45,6 +45,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.deploy/
 
 # Android / Capacitor build output
 /android/.gradle/

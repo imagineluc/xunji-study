@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+archive="${1:-}"
+[[ "$archive" == "/tmp/xunji-release.tgz" && -f "$archive" ]] || { echo "Invalid release archive"; exit 1; }
+
+staging="$(mktemp -d /tmp/xunji-release.XXXXXX)"
+trap 'rm -rf "$staging"' EXIT
+tar -xzf "$archive" -C "$staging"
+[[ -f "$staging/dist/server/wrangler.json" ]] || { echo "Invalid build output"; exit 1; }
+
+stamp="$(date +%Y%m%d-%H%M%S)"
+backup="/opt/xunji-backup/dist-$stamp"
+mkdir -p /opt/xunji-backup
+
+systemctl stop xunji
+mv /opt/xunji/dist "$backup"
+mv "$staging/dist" /opt/xunji/dist
+chown -R xunji:xunji /opt/xunji/dist
+systemctl start xunji
+rm -f "$archive"
+echo "Deployed successfully; backup: $backup"
