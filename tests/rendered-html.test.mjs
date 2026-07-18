@@ -14,6 +14,8 @@ test("contains the calendar views, study experience, and deployable output", asy
   assert.match(layout, /循记 · 艾宾浩斯学习助手/);
   assert.match(studyApp, /"today" \| "calendar" \| "tasks"/);
   assert.match(studyApp, /<CalendarApp/);
+  assert.match(studyApp, /type: "normal" \| "memory"/);
+  assert.match(studyApp, /task-type-switch/);
   assert.match(calendar, /export function DayView/);
   assert.match(calendar, /export function WeekView/);
   assert.match(calendar, /export function MonthView/);

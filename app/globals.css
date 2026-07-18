@@ -126,6 +126,7 @@
   .today-actions { @apply flex gap-2; }
   .today-actions button { @apply min-w-24 rounded-lg border border-rose-400/20 bg-rose-400/[0.07] px-3 py-2 text-left text-rose-300 transition duration-150 ease-out hover:border-rose-300/35 hover:bg-rose-400/[0.11] active:bg-rose-400/[0.15]; }
   .today-actions button.due { @apply border-amber-400/20 bg-amber-400/[0.07] text-amber-300 hover:border-amber-300/35 hover:bg-amber-400/[0.11]; }
+  .today-actions button.normal-done { @apply border-white/[0.12] bg-white/[0.05] text-[#D8D8DC] hover:border-white/[0.2] hover:bg-white/[0.08]; }
   .today-actions span, .today-actions small { @apply block; }
   .today-actions span { @apply text-[11px] font-medium; }
   .today-actions small { @apply mt-0.5 text-[9px] text-[#8A8F98]; }
@@ -152,6 +153,9 @@
   .task-card { @apply rounded-lg border border-white/[0.08] border-t-white/[0.13] bg-[#0C0C0D] p-6 transition duration-150 ease-out hover:border-white/[0.14] hover:bg-[#151516]; box-shadow: inset 0 1px 0 rgba(255,255,255,.035); }
   .task-card.finished { @apply opacity-60; }
   .task-card-head { @apply flex items-start justify-between gap-4; }
+  .task-badges { @apply flex flex-wrap items-center gap-2; }
+  .task-kind { @apply inline-flex rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-[#8A8F98]; }
+  .task-kind.memory { @apply border-[#5E6AD2]/25 bg-[#5E6AD2]/10 text-[#AEB5FF]; }
   .category-pill { @apply inline-flex rounded-full border border-current/15 px-2.5 py-1 text-[10px] font-medium; }
   .task-card h3 { @apply mb-3 mt-4 text-[16px] font-medium tracking-[-.025em] text-[#EDEDEF]; }
   .tags { @apply flex min-h-5 flex-wrap gap-1.5 text-[10px] text-[#8A8F98]; }
@@ -169,6 +173,12 @@
   .review-track button.soon { @apply border-amber-400/15 bg-amber-400/[0.04] text-amber-300/80; }
   .review-track button.overdue { @apply border-rose-400/25 bg-rose-400/[0.07] text-rose-300; }
   .task-card-foot { @apply flex items-center justify-between gap-3 text-[10px] text-[#8A8F98]; }
+  .normal-task-row { @apply my-5 flex min-h-20 items-center justify-between gap-4 rounded-lg border border-white/[0.07] bg-black/20 px-4 py-3; }
+  .normal-task-row span, .normal-task-row strong { @apply block; }
+  .normal-task-row span { @apply text-[10px] text-[#8A8F98]; }
+  .normal-task-row strong { @apply mt-1 text-sm font-medium text-[#EDEDEF]; }
+  .normal-task-row button { @apply rounded-lg border border-white/[0.1] bg-white/[0.05] px-3 py-2 text-[11px] font-medium text-[#EDEDEF] transition hover:bg-white/[0.09]; }
+  .normal-task-row button.done { @apply text-[#8A8F98]; }
   .text-button { @apply rounded-lg border border-transparent bg-transparent px-2.5 py-1.5 font-medium text-[#AEB5FF] transition duration-150 ease-out hover:border-[#5E6AD2]/20 hover:bg-[#5E6AD2]/10 active:bg-[#5E6AD2]/15; }
   .danger-text { @apply !text-rose-300 hover:!border-rose-400/20 hover:!bg-rose-400/[0.08]; }
 
@@ -246,6 +256,17 @@
   .schedule-preview { @apply grid rounded-lg border border-[#5E6AD2]/25 bg-[#5E6AD2]/[0.08] p-4 text-[#AEB5FF]; }
   .schedule-preview strong { @apply text-[11px] font-medium; }
   .schedule-preview span { @apply text-[10px] text-[#8A8F98]; }
+  .task-type-switch { @apply grid grid-cols-2 gap-2; }
+  .task-type-switch button { @apply rounded-lg border border-white/[0.08] bg-black/20 p-3 text-left transition hover:border-white/[0.14] hover:bg-white/[0.03]; }
+  .task-type-switch button strong, .task-type-switch button small { @apply block; }
+  .task-type-switch button strong { @apply text-xs font-medium text-[#B6B6BC]; }
+  .task-type-switch button small { @apply mt-1 text-[9px] leading-4 text-[#5E6068]; }
+  .task-type-switch button.active { @apply border-white/[0.18] bg-white/[0.06]; }
+  .task-type-switch button.active.memory { @apply border-[#5E6AD2]/40 bg-[#5E6AD2]/10; }
+  .task-type-switch button.active.memory strong { @apply text-[#BEC3FF]; }
+  .editing-type { @apply flex items-center justify-between rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2.5 text-[11px] font-medium text-[#B6B6BC]; }
+  .editing-type small { @apply text-[9px] font-normal text-[#555860]; }
+  .editing-type.memory { @apply border-[#5E6AD2]/20 bg-[#5E6AD2]/[0.06] text-[#AEB5FF]; }
   .editable-tags { @apply flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-white/[0.08] bg-black/20 p-2; }
   .editable-tags button { @apply inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-[#8A8F98] transition duration-150 ease-out hover:border-rose-300/25 hover:bg-rose-400/[0.08] hover:text-rose-300 active:bg-rose-400/[0.12]; }
   .editable-tags small { @apply px-2 text-[#4A4D52]; }

@@ -32,11 +32,15 @@ type Tab = "today" | "calendar" | "tasks" | "focus" | "stats" | "settings";
 type Category = { id: string; name: string; color: string };
 type Task = {
   id: string;
+  type: "normal" | "memory";
   title: string;
   categoryId: string;
   tags: string[];
   tagChanges?: Record<string, { present: boolean; updatedAt: string }>;
   startDate: string;
+  startTime?: string;
+  endTime?: string;
+  normalCompleted?: boolean;
   reviewDates?: string[];
   completed: boolean[];
   createdAt: string;
@@ -172,7 +176,7 @@ function reviewStatus(task: Task, index: number) {
 }
 
 function isTaskFinished(task: Task) {
-  return task.completed.every(Boolean);
+  return task.type === "normal" ? Boolean(task.normalCompleted) : task.completed.every(Boolean);
 }
 
 function normalizeData(value: unknown): AppData {
@@ -193,13 +197,18 @@ function normalizeData(value: unknown): AppData {
     : [];
   return {
     version: 1,
-    tasks: sourceTasks.map((task) => ({
-      ...task,
-      completed: INTERVALS.map((_, index) => Boolean(task.completed?.[index])),
-      tags: Array.isArray(task.tags) ? task.tags : [],
-      reviewDates: INTERVALS.map((days, index) => task.reviewDates?.[index] || addDays(task.startDate || localISO(), days)),
-      updatedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
-    })).map((task) => ({ ...task, tagChanges: getTagChanges(task) })),
+    tasks: sourceTasks.map((task) => {
+      const type = task.type === "normal" ? "normal" as const : "memory" as const;
+      return {
+        ...task,
+        type,
+        normalCompleted: type === "normal" ? Boolean(task.normalCompleted) : false,
+        completed: type === "memory" ? INTERVALS.map((_, index) => Boolean(task.completed?.[index])) : [],
+        tags: Array.isArray(task.tags) ? task.tags : [],
+        reviewDates: type === "memory" ? INTERVALS.map((days, index) => task.reviewDates?.[index] || addDays(task.startDate || localISO(), days)) : [],
+        updatedAt: task.updatedAt || task.createdAt || new Date().toISOString(),
+      };
+    }).map((task) => ({ ...task, tagChanges: getTagChanges(task) })),
     deletedTasks: Array.isArray(input.deletedTasks)
       ? input.deletedTasks.filter((entry): entry is DeletedTask => Boolean(entry?.id && entry?.deletedAt))
       : [],
@@ -268,6 +277,7 @@ export function StudyApp() {
   const [tab, setTab] = useState<Tab>("today");
   const [hydrated, setHydrated] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [newTaskType, setNewTaskType] = useState<Task["type"]>("memory");
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [newEditTag, setNewEditTag] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -288,17 +298,27 @@ export function StudyApp() {
   const today = localISO();
   const taskMap = useMemo(() => new Map(data.tasks.map((task) => [task.id, task])), [data.tasks]);
   const categoryMap = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
-  const calendarTasks = useMemo<CalendarTask[]>(() => data.tasks.flatMap((task) => [
-    { id: `${task.id}:initial`, type: "normal" as const, title: `初次学习 · ${task.title}`, date: task.startDate },
-    ...INTERVALS.map((_, index) => ({
-      id: `${task.id}:${index}`,
-      type: "memory" as const,
-      title: task.title,
-      stage: index + 1,
-      date: reviewDate(task, index),
-      completed: Boolean(task.completed[index]),
-    })),
-  ]), [data.tasks]);
+  const calendarTasks = useMemo<CalendarTask[]>(() => data.tasks.flatMap((task) => task.type === "normal"
+    ? [{
+        id: `${task.id}:normal`,
+        type: "normal" as const,
+        title: task.title,
+        date: task.startDate,
+        startTime: task.startTime,
+        endTime: task.endTime,
+        completed: Boolean(task.normalCompleted),
+      }]
+    : [
+        { id: `${task.id}:initial`, type: "normal" as const, title: `初次学习 · ${task.title}`, date: task.startDate },
+        ...INTERVALS.map((_, index) => ({
+          id: `${task.id}:${index}`,
+          type: "memory" as const,
+          title: task.title,
+          stage: index + 1,
+          date: reviewDate(task, index),
+          completed: Boolean(task.completed[index]),
+        })),
+      ]), [data.tasks]);
 
   useEffect(() => {
     try {
@@ -372,21 +392,37 @@ export function StudyApp() {
     notify(completed[index] ? "复习已完成 ✓" : "已恢复为待复习");
   }
 
+  function toggleNormalTask(taskId: string) {
+    const task = taskMap.get(taskId);
+    if (!task || task.type !== "normal") return;
+    updateTask(taskId, { normalCompleted: !task.normalCompleted });
+    notify(task.normalCompleted ? "已恢复为待办" : "普通任务已完成 ✓");
+  }
+
   function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const title = String(form.get("title") || "").trim();
     if (!title) return;
     const stamp = new Date().toISOString();
+    const type = String(form.get("type") || "memory") === "normal" ? "normal" as const : "memory" as const;
+    const startDate = String(form.get("startDate") || today);
+    const startTime = String(form.get("startTime") || "");
+    const endTime = String(form.get("endTime") || "");
+    if (type === "normal" && startTime && endTime && endTime <= startTime) return notify("结束时间需要晚于开始时间");
     const tags = String(form.get("tags") || "").split(/[，,]/).map((tag) => tag.trim()).filter(Boolean);
     const task: Task = {
       id: uid("task"),
+      type,
       title,
       categoryId: String(form.get("category") || ""),
       tags: [...new Set(tags)],
-      startDate: String(form.get("startDate") || today),
-      reviewDates: INTERVALS.map((days) => addDays(String(form.get("startDate") || today), days)),
-      completed: INTERVALS.map(() => false),
+      startDate,
+      startTime: type === "normal" ? startTime : undefined,
+      endTime: type === "normal" ? endTime : undefined,
+      normalCompleted: false,
+      reviewDates: type === "memory" ? INTERVALS.map((days) => addDays(startDate, days)) : [],
+      completed: type === "memory" ? INTERVALS.map(() => false) : [],
       createdAt: stamp,
       updatedAt: stamp,
     };
@@ -394,7 +430,8 @@ export function StudyApp() {
     setData((current) => ({ ...current, tasks: [task, ...current.tasks] }));
     setTimerTaskId(task.id);
     setShowAdd(false);
-    notify("任务已添加，复习节点已排好");
+    setNewTaskType("memory");
+    notify(type === "memory" ? "记忆任务已添加，复习节点已排好" : "普通任务已添加");
   }
 
   function editTask(task: Task) {
@@ -407,8 +444,9 @@ export function StudyApp() {
     if (!editingTask) return;
     const title = editingTask.title.trim();
     if (!title) return notify("任务名称不能为空");
+    if (editingTask.type === "normal" && editingTask.startTime && editingTask.endTime && editingTask.endTime <= editingTask.startTime) return notify("结束时间需要晚于开始时间");
     const previous = taskMap.get(editingTask.id);
-    const reviewDates = previous && previous.startDate !== editingTask.startDate
+    const reviewDates = editingTask.type === "memory" && previous && previous.startDate !== editingTask.startDate
       ? INTERVALS.map((days, index) => previous.completed[index] ? reviewDate(previous, index) : addDays(editingTask.startDate, days))
       : editingTask.reviewDates;
     updateTask(editingTask.id, { ...editingTask, title, reviewDates, tagChanges: getTagChanges(editingTask) });
@@ -646,7 +684,7 @@ export function StudyApp() {
   }
 
   function rescheduleOverdueReviews() {
-    const nodes = data.tasks.flatMap((task) => INTERVALS.map((_, index) => ({ task, index }))
+    const nodes = data.tasks.filter((task) => task.type === "memory").flatMap((task) => INTERVALS.map((_, index) => ({ task, index }))
       .filter((node) => reviewStatus(node.task, node.index) === "overdue"))
       .sort((a, b) => reviewDate(a.task, a.index).localeCompare(reviewDate(b.task, b.index)));
     if (!nodes.length) return notify("没有需要顺延的逾期复习");
@@ -656,7 +694,7 @@ export function StudyApp() {
 
     // Today's scheduled reviews stay put. Rescheduled reviews start tomorrow and
     // avoid every other unfinished review date of the same task.
-    const reservedDates = new Map(data.tasks.map((task) => [task.id, new Set(
+    const reservedDates = new Map(data.tasks.filter((task) => task.type === "memory").map((task) => [task.id, new Set(
       INTERVALS.flatMap((_, index) => reviewStatus(task, index) !== "overdue" ? [reviewDate(task, index)] : []),
     )]));
     const scheduledPerDay = new Map<string, number>();
@@ -674,6 +712,7 @@ export function StudyApp() {
     setData((current) => ({
       ...current,
       tasks: current.tasks.map((task) => {
+        if (task.type === "normal") return task;
         const reviewDates = INTERVALS.map((daysToAdd, index) => schedule.get(`${task.id}-${index}`) || reviewDate(task, index) || addDays(task.startDate, daysToAdd));
         return schedule.size && reviewDates.some((date, index) => date !== reviewDate(task, index))
           ? { ...task, reviewDates, updatedAt: stamp }
@@ -683,11 +722,13 @@ export function StudyApp() {
     notify(`已将逾期复习分摊到未来 ${days} 天`);
   }
 
-  const dueTasks = useMemo(() => data.tasks.filter((task) => task.completed.some((_, index) => {
+  const dueTasks = useMemo(() => data.tasks.filter((task) => task.type === "memory" && task.completed.some((_, index) => {
     const status = reviewStatus(task, index);
     return status === "due" || status === "overdue";
   })), [data.tasks]);
-  const overdueCount = data.tasks.reduce((sum, task) => sum + INTERVALS.filter((_, index) => reviewStatus(task, index) === "overdue").length, 0);
+  const overdueCount = data.tasks.filter((task) => task.type === "memory").reduce((sum, task) => sum + INTERVALS.filter((_, index) => reviewStatus(task, index) === "overdue").length, 0);
+  const todayNormalTasks = data.tasks.filter((task) => task.type === "normal" && task.startDate === today && !task.normalCompleted);
+  const todayAttentionCount = dueTasks.length + todayNormalTasks.length;
 
   const visibleTasks = useMemo(() => data.tasks.filter((task) => {
     const matchesCategory = categoryFilter === "all" || task.categoryId === categoryFilter;
@@ -701,8 +742,9 @@ export function StudyApp() {
   const todaySessions = data.sessions.filter((session) => localISO(new Date(session.startedAt)) === today);
   const todaySeconds = todaySessions.reduce((sum, session) => sum + session.durationSec, 0);
   const totalSeconds = data.sessions.reduce((sum, session) => sum + session.durationSec, 0);
-  const completedReviews = data.tasks.reduce((sum, task) => sum + task.completed.filter(Boolean).length, 0);
-  const totalReviews = data.tasks.length * INTERVALS.length;
+  const memoryTasks = data.tasks.filter((task) => task.type === "memory");
+  const completedReviews = memoryTasks.reduce((sum, task) => sum + task.completed.filter(Boolean).length, 0);
+  const totalReviews = memoryTasks.length * INTERVALS.length;
   const weekly = Array.from({ length: 7 }, (_, index) => {
     const date = new Date();
     date.setDate(date.getDate() - (6 - index));
@@ -737,12 +779,12 @@ export function StudyApp() {
       <main className="main">
         <header className="topbar">
           <div><p className="eyebrow date-time" suppressHydrationWarning>{dateTimeLabel(now)}</p><h1>{NAV_ITEMS.find((item) => item.id === tab)?.label}</h1></div>
-          <button className="primary" onClick={() => setShowAdd(true)}>＋ 新建任务</button>
+          <button className="primary" onClick={() => { setNewTaskType("memory"); setShowAdd(true); }}>＋ 新建任务</button>
         </header>
 
         {tab === "today" && <section className="page-stack">
           <div className="hero-card">
-            <div><p className="eyebrow">TODAY&apos;S RHYTHM</p><h2>{dueTasks.length ? `今天有 ${dueTasks.length} 个任务需要照顾` : "今天的复习已经清空"}</h2><p>先完成到期复习，再用一轮专注推进最重要的任务。</p>{overdueCount > 0 && <button className="hero-action" onClick={rescheduleOverdueReviews}>重新规划 {overdueCount} 个逾期复习</button>}</div>
+            <div><p className="eyebrow">TODAY&apos;S RHYTHM</p><h2>{todayAttentionCount ? `今天有 ${todayAttentionCount} 个任务需要照顾` : "今天的安排已经清空"}</h2><p>先处理今天的普通任务和到期复习，再用一轮专注推进最重要的事项。</p>{overdueCount > 0 && <button className="hero-action" onClick={rescheduleOverdueReviews}>重新规划 {overdueCount} 个逾期复习</button>}</div>
             <div className="hero-progress"><strong>{Math.min(100, Math.round(todaySeconds / 60 / data.settings.dailyGoalMinutes * 100))}%</strong><span>今日专注目标</span></div>
           </div>
           <div className="metric-grid">
@@ -753,8 +795,8 @@ export function StudyApp() {
           </div>
           <div className="content-grid">
             <div className="panel wide">
-              <PanelTitle title="今日复习" subtitle="点击节点即可完成打卡" action={dueTasks.length ? `${dueTasks.length} 项` : "已清空"} />
-              {dueTasks.length ? <div className="review-list">{dueTasks.slice(0, 6).map((task) => <TodayTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} />)}</div> : <Empty icon="✓" title="今日没有到期任务" text="可以提前复习，或者开始一轮专注。" />}
+              <PanelTitle title="今日安排" subtitle="普通任务与到期复习统一处理" action={todayAttentionCount ? `${todayAttentionCount} 项` : "已清空"} />
+              {todayAttentionCount ? <div className="review-list">{todayNormalTasks.map((task) => <TodayNormalTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleNormalTask} />)}{dueTasks.slice(0, 6).map((task) => <TodayTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} />)}</div> : <Empty icon="✓" title="今日没有待办任务" text="可以提前复习，或者开始一轮专注。" />}
             </div>
             <div className="panel focus-quick">
               <PanelTitle title="快速专注" subtitle={`${data.settings.focusMinutes} 分钟一轮`} />
@@ -771,8 +813,9 @@ export function StudyApp() {
           <CalendarApp
             tasks={calendarTasks}
             onToggleComplete={(calendarId) => {
-              const [taskId, index] = String(calendarId).split(":");
-              toggleReview(taskId, Number(index));
+              const [taskId, target] = String(calendarId).split(":");
+              if (target === "normal") toggleNormalTask(taskId);
+              else if (target !== "initial") toggleReview(taskId, Number(target));
             }}
           />
         </section>}
@@ -783,7 +826,7 @@ export function StudyApp() {
             <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务或标签" aria-label="搜索任务或标签" />
           </div>
           <div className="subfilters"><button className={taskFilter === "active" ? "active" : ""} onClick={() => setTaskFilter("active")}>进行中</button><button className={taskFilter === "all" ? "active" : ""} onClick={() => setTaskFilter("all")}>全部</button><button className={taskFilter === "done" ? "active" : ""} onClick={() => setTaskFilter("done")}>已完成</button><span>{visibleTasks.length} 个任务</span></div>
-          {visibleTasks.length ? <div className="task-grid">{visibleTasks.map((task) => <TaskCard key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} onEdit={() => editTask(task)} onDelete={() => deleteTask(task)} onRemoveTag={(tag) => removeTaskTag(task, tag)} onFocus={() => { setTimerTaskId(task.id); setTab("focus"); }} />)}</div> : <div className="panel"><Empty icon="□" title="没有符合条件的任务" text="试试切换分类，或者新建一个任务。" /></div>}
+          {visibleTasks.length ? <div className="task-grid">{visibleTasks.map((task) => <TaskCard key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} onToggleNormal={() => toggleNormalTask(task.id)} onEdit={() => editTask(task)} onDelete={() => deleteTask(task)} onRemoveTag={(tag) => removeTaskTag(task, tag)} onFocus={() => { setTimerTaskId(task.id); setTab("focus"); }} />)}</div> : <div className="panel"><Empty icon="□" title="没有符合条件的任务" text="试试切换分类，或者新建一个任务。" /></div>}
         </section>}
 
         {tab === "focus" && <section className="page-stack focus-layout">
@@ -821,8 +864,41 @@ export function StudyApp() {
 
       <nav className="mobile-nav">{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span><NavIcon name={item.id} /></span>{item.label}</button>)}</nav>
 
-      {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title"><div className="modal-head"><div><p className="eyebrow">NEW MEMORY</p><h2 id="new-task-title">添加学习任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div><form onSubmit={createTask}><label>任务名称<input name="title" autoFocus maxLength={100} placeholder="例如：英语 Unit 3 单词" required /></label><div className="form-grid"><label>分类<select name="category" defaultValue={data.categories[0]?.id || ""}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input name="startDate" type="date" defaultValue={today} required /></label></div><label>标签<input name="tags" placeholder="例如：单词、错题、背诵（逗号分隔）" /></label><div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">添加并排期</button></div></form></div></div>}
-      {editingTask && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditingTask(null)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-title"><div className="modal-head"><div><p className="eyebrow">EDIT TASK</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div><form onSubmit={saveEditedTask}><label>任务名称<input value={editingTask.title} onChange={(event) => setEditingTask({ ...editingTask, title: event.target.value })} maxLength={100} required /></label><div className="form-grid"><label>分类<select value={editingTask.categoryId} onChange={(event) => setEditingTask({ ...editingTask, categoryId: event.target.value })}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input type="date" value={editingTask.startDate} onChange={(event) => setEditingTask({ ...editingTask, startDate: event.target.value })} required /></label></div><label>标签</label><div className="editable-tags">{editingTask.tags.length ? editingTask.tags.map((tag) => <button type="button" key={tag} onClick={() => { const stamp = new Date().toISOString(); setEditingTask({ ...editingTask, tags: editingTask.tags.filter((entry) => entry !== tag), tagChanges: { ...getTagChanges(editingTask), [tag]: { present: false, updatedAt: stamp } } }); }}>#{tag}<span>×</span></button>) : <small>还没有标签</small>}</div><div className="inline-form"><input value={newEditTag} onChange={(event) => setNewEditTag(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addEditTag(); } }} placeholder="输入新标签" /><button type="button" className="secondary" onClick={addEditTag}>添加标签</button></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditingTask(null)}>取消</button><button className="primary">保存修改</button></div></form></div></div>}
+      {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}>
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title">
+          <div className="modal-head"><div><p className="eyebrow">NEW TASK</p><h2 id="new-task-title">添加任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div>
+          <form onSubmit={createTask}>
+            <div className="task-type-switch" role="radiogroup" aria-label="任务类型">
+              <button type="button" role="radio" aria-checked={newTaskType === "normal"} className={newTaskType === "normal" ? "active" : ""} onClick={() => setNewTaskType("normal")}><strong>普通任务</strong><small>只安排一次，不生成复习</small></button>
+              <button type="button" role="radio" aria-checked={newTaskType === "memory"} className={newTaskType === "memory" ? "active memory" : "memory"} onClick={() => setNewTaskType("memory")}><strong>记忆任务</strong><small>自动生成 5 个复习节点</small></button>
+            </div>
+            <input type="hidden" name="type" value={newTaskType} />
+            <label>任务名称<input name="title" autoFocus maxLength={100} placeholder={newTaskType === "memory" ? "例如：英语 Unit 3 单词" : "例如：下午 3 点产品会议"} required /></label>
+            <div className="form-grid">
+              <label>分类<select name="category" defaultValue={data.categories[0]?.id || ""}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+              <label>{newTaskType === "memory" ? "首次学习日期" : "任务日期"}<input name="startDate" type="date" defaultValue={today} required /></label>
+            </div>
+            {newTaskType === "normal" && <div className="form-grid"><label>开始时间<input name="startTime" type="time" /></label><label>结束时间<input name="endTime" type="time" /></label></div>}
+            <label>标签<input name="tags" placeholder="例如：工作、错题、背诵（逗号分隔）" /></label>
+            {newTaskType === "memory" && <div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div>}
+            <div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">{newTaskType === "memory" ? "添加并排期" : "添加任务"}</button></div>
+          </form>
+        </div>
+      </div>}
+      {editingTask && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditingTask(null)}>
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-title">
+          <div className="modal-head"><div><p className="eyebrow">EDIT TASK</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div>
+          <form onSubmit={saveEditedTask}>
+            <div className={`editing-type ${editingTask.type}`}>{editingTask.type === "memory" ? "🧠 记忆任务" : "普通任务"}<small>任务类型创建后不可转换</small></div>
+            <label>任务名称<input value={editingTask.title} onChange={(event) => setEditingTask({ ...editingTask, title: event.target.value })} maxLength={100} required /></label>
+            <div className="form-grid"><label>分类<select value={editingTask.categoryId} onChange={(event) => setEditingTask({ ...editingTask, categoryId: event.target.value })}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>{editingTask.type === "memory" ? "首次学习日期" : "任务日期"}<input type="date" value={editingTask.startDate} onChange={(event) => setEditingTask({ ...editingTask, startDate: event.target.value })} required /></label></div>
+            {editingTask.type === "normal" && <div className="form-grid"><label>开始时间<input type="time" value={editingTask.startTime || ""} onChange={(event) => setEditingTask({ ...editingTask, startTime: event.target.value })} /></label><label>结束时间<input type="time" value={editingTask.endTime || ""} onChange={(event) => setEditingTask({ ...editingTask, endTime: event.target.value })} /></label></div>}
+            <label>标签</label><div className="editable-tags">{editingTask.tags.length ? editingTask.tags.map((tag) => <button type="button" key={tag} onClick={() => { const stamp = new Date().toISOString(); setEditingTask({ ...editingTask, tags: editingTask.tags.filter((entry) => entry !== tag), tagChanges: { ...getTagChanges(editingTask), [tag]: { present: false, updatedAt: stamp } } }); }}>#{tag}<span>×</span></button>) : <small>还没有标签</small>}</div>
+            <div className="inline-form"><input value={newEditTag} onChange={(event) => setNewEditTag(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addEditTag(); } }} placeholder="输入新标签" /><button type="button" className="secondary" onClick={addEditTag}>添加标签</button></div>
+            <div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditingTask(null)}>取消</button><button className="primary">保存修改</button></div>
+          </form>
+        </div>
+      </div>}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
@@ -845,7 +921,16 @@ function TodayTask({ task, category, onToggle }: { task: Task; category?: Catego
   return <article className="today-task"><i style={{ background: category?.color || "#a1a1aa" }} /><div className="task-info"><span>{category?.name || "未分类"}</span><strong>{task.title}</strong><small>{task.tags.join(" · ") || "暂无标签"}</small></div><div className="today-actions">{actionable.map((entry) => <button key={entry.index} className={entry.status} onClick={() => onToggle(task.id, entry.index)}><span>{entry.status === "overdue" ? "已逾期" : "今天"}</span><small>第 {entry.index + 1} 次 · {dateLabel(entry.date)}</small></button>)}</div></article>;
 }
 
-function TaskCard({ task, category, onToggle, onEdit, onDelete, onRemoveTag, onFocus }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void; onEdit: () => void; onDelete: () => void; onRemoveTag: (tag: string) => void; onFocus: () => void }) {
+function TodayNormalTask({ task, category, onToggle }: { task: Task; category?: Category; onToggle: (id: string) => void }) {
+  const time = task.startTime ? `${task.startTime}${task.endTime ? `—${task.endTime}` : ""}` : "全天";
+  return <article className="today-task normal"><i style={{ background: category?.color || "#71717a" }} /><div className="task-info"><span>{category?.name || "未分类"} · 普通任务</span><strong>{task.title}</strong><small>{time} · {task.tags.join(" · ") || "暂无标签"}</small></div><div className="today-actions"><button className="normal-done" onClick={() => onToggle(task.id)}><span>完成任务</span><small>仅本次</small></button></div></article>;
+}
+
+function TaskCard({ task, category, onToggle, onToggleNormal, onEdit, onDelete, onRemoveTag, onFocus }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void; onToggleNormal: () => void; onEdit: () => void; onDelete: () => void; onRemoveTag: (tag: string) => void; onFocus: () => void }) {
   const categoryColor = category?.color || "#71717a";
-  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}><div className="task-card-head"><div><span className="category-pill" style={{ color: categoryColor, background: `${categoryColor}18` }}>{category?.name || "未分类"}</span><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <button type="button" key={tag} onClick={() => onRemoveTag(tag)} title={`删除标签 ${tag}`}>#{tag}<span>删除 ×</span></button>) : <button type="button" onClick={onEdit}>＋ 添加标签</button>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务和标签">编辑任务</button></div><div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); const statusLabel = status === "done" ? "已完成" : status === "overdue" ? "已逾期" : status === "due" ? "今日复习" : status === "soon" ? "即将到期" : "安全期"; return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]} title={`${statusLabel} · ${dateLabel(reviewDate(task, index))}`}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(reviewDate(task, index))}</span><small>{statusLabel}</small></button>; })}</div><div className="task-card-foot"><span>开始于 {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onEdit}>管理标签</button><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除任务</button></div></div></article>;
+  return <article className={`task-card ${isTaskFinished(task) ? "finished" : ""}`}>
+    <div className="task-card-head"><div><div className="task-badges"><span className="category-pill" style={{ color: categoryColor, background: `${categoryColor}18` }}>{category?.name || "未分类"}</span><span className={`task-kind ${task.type}`}>{task.type === "memory" ? "🧠 记忆" : "普通"}</span></div><h3>{task.title}</h3><div className="tags">{task.tags.length ? task.tags.map((tag) => <button type="button" key={tag} onClick={() => onRemoveTag(tag)} title={`删除标签 ${tag}`}>#{tag}<span>删除 ×</span></button>) : <button type="button" onClick={onEdit}>＋ 添加标签</button>}</div></div><button className="more" onClick={onEdit} aria-label="编辑任务和标签">编辑任务</button></div>
+    {task.type === "memory" ? <div className="review-track">{INTERVALS.map((days, index) => { const status = reviewStatus(task, index); const statusLabel = status === "done" ? "已完成" : status === "overdue" ? "已逾期" : status === "due" ? "今日复习" : status === "soon" ? "即将到期" : "安全期"; return <button key={days} className={status} onClick={() => onToggle(task.id, index)} aria-pressed={task.completed[index]} title={`${statusLabel} · ${dateLabel(reviewDate(task, index))}`}><i>{status === "done" ? "✓" : index + 1}</i><span>{dateLabel(reviewDate(task, index))}</span><small>{statusLabel}</small></button>; })}</div> : <div className="normal-task-row"><div><span>{task.startTime ? `${task.startTime}${task.endTime ? `—${task.endTime}` : ""}` : "全天任务"}</span><strong>{task.normalCompleted ? "已完成" : "待完成"}</strong></div><button className={task.normalCompleted ? "done" : ""} onClick={onToggleNormal}>{task.normalCompleted ? "恢复任务" : "标记完成"}</button></div>}
+    <div className="task-card-foot"><span>{task.type === "memory" ? "开始于" : "安排于"} {dateLabel(task.startDate)}</span><div><button className="text-button" onClick={onEdit}>管理标签</button><button className="text-button" onClick={onFocus}>开始专注</button><button className="text-button danger-text" onClick={onDelete}>删除任务</button></div></div>
+  </article>;
 }
