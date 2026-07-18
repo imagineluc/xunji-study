@@ -4,7 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("contains the calendar views, study experience, and deployable output", async () => {
+test("contains the interactive calendar, study experience, and deployable output", async () => {
   const [studyApp, calendar, layout, manifest] = await Promise.all([
     readFile(new URL("app/StudyApp.tsx", root), "utf8"),
     readFile(new URL("app/CalendarApp.tsx", root), "utf8"),
@@ -16,11 +16,11 @@ test("contains the calendar views, study experience, and deployable output", asy
   assert.match(studyApp, /<CalendarApp/);
   assert.match(studyApp, /type: "normal" \| "memory"/);
   assert.match(studyApp, /task-type-switch/);
-  assert.match(calendar, /export function DayView/);
-  assert.match(calendar, /export function WeekView/);
-  assert.match(calendar, /export function MonthView/);
-  assert.match(calendar, /还有.*项复习/);
-  assert.match(calendar, /复习清单/);
+  assert.match(calendar, /type ViewMode = "day" \| "threeDay" \| "week" \| "month"/);
+  assert.match(calendar, /onRescheduleTask/);
+  assert.match(calendar, /点击空白时间快速新建/);
+  assert.match(calendar, /第.*轮复习/);
+  assert.match(calendar, /移动到该日/);
   assert.match(studyApp, /INTERVALS = \[1, 2, 4, 7, 15\]/);
   assert.doesNotMatch(calendar + layout, /codex-preview|Your site is taking shape|react-loading-skeleton/);
   assert.equal(JSON.parse(manifest).display, "standalone");

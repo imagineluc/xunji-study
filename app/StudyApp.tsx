@@ -301,6 +301,7 @@ export function StudyApp() {
   const [hydrated, setHydrated] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newTaskType, setNewTaskType] = useState<Task["type"]>("memory");
+  const [calendarDraft, setCalendarDraft] = useState<{ date: string; startTime?: string; endTime?: string } | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [newEditTag, setNewEditTag] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -331,9 +332,11 @@ export function StudyApp() {
         startTime: task.startTime,
         endTime: task.endTime,
         completed: Boolean(task.normalCompleted),
+        color: categoryMap.get(task.categoryId)?.color,
+        category: categoryMap.get(task.categoryId)?.name,
       }]
     : [
-        { id: `${task.id}:initial`, type: "normal" as const, title: `初次学习 · ${task.title}`, date: task.startDate },
+        { id: `${task.id}:initial`, type: "normal" as const, title: `初次学习 · ${task.title}`, date: task.startDate, color: categoryMap.get(task.categoryId)?.color, category: categoryMap.get(task.categoryId)?.name },
         ...INTERVALS.map((_, index) => ({
           id: `${task.id}:${index}`,
           type: "memory" as const,
@@ -341,8 +344,10 @@ export function StudyApp() {
           stage: index + 1,
           date: reviewDate(task, index),
           completed: Boolean(task.completed[index]),
+          color: categoryMap.get(task.categoryId)?.color,
+          category: categoryMap.get(task.categoryId)?.name,
         })),
-      ]), [data.tasks]);
+      ]), [categoryMap, data.tasks]);
 
   useEffect(() => {
     const currentTheme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
@@ -438,6 +443,30 @@ export function StudyApp() {
     notify(task.normalCompleted ? "已恢复为待办" : "普通任务已完成 ✓");
   }
 
+  function rescheduleCalendarTask(calendarId: string | number, nextDate: string, startTime?: string, endTime?: string) {
+    const [taskId, target] = String(calendarId).split(":");
+    const task = taskMap.get(taskId);
+    if (!task) return;
+    if (target === "normal" && task.type === "normal") {
+      updateTask(taskId, { startDate: nextDate, startTime, endTime });
+      notify("任务时间已调整");
+      return;
+    }
+    if (target === "initial" && task.type === "memory") {
+      const reviewDates = INTERVALS.map((days, index) => task.completed[index] ? reviewDate(task, index) : addDays(nextDate, days));
+      updateTask(taskId, { startDate: nextDate, reviewDates });
+      notify("首次学习日期与后续复习已重新排期");
+      return;
+    }
+    const reviewIndex = Number(target);
+    if (task.type === "memory" && Number.isInteger(reviewIndex) && reviewIndex >= 0 && reviewIndex < INTERVALS.length) {
+      const reviewDates = [...(task.reviewDates || INTERVALS.map((days) => addDays(task.startDate, days)))];
+      reviewDates[reviewIndex] = nextDate;
+      updateTask(taskId, { reviewDates });
+      notify(`第 ${reviewIndex + 1} 轮复习已移动`);
+    }
+  }
+
   function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -470,6 +499,7 @@ export function StudyApp() {
     setTimerTaskId(task.id);
     setShowAdd(false);
     setNewTaskType("memory");
+    setCalendarDraft(null);
     notify(type === "memory" ? "记忆任务已添加，复习节点已排好" : "普通任务已添加");
   }
 
@@ -822,20 +852,20 @@ export function StudyApp() {
             <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`切换到${theme === "light" ? "深色" : "浅色"}模式`} title={`切换到${theme === "light" ? "深色" : "浅色"}模式`}>
               <ThemeIcon theme={theme} /><span>{theme === "light" ? "深色" : "浅色"}</span>
             </button>
-            <button className="primary" onClick={() => { setNewTaskType("memory"); setShowAdd(true); }}>＋ 新建任务</button>
+            <button className="primary" onClick={() => { setCalendarDraft(null); setNewTaskType("memory"); setShowAdd(true); }}>＋ 新建任务</button>
           </div>
         </header>
 
         {tab === "today" && <section className="page-stack">
           <div className="hero-card">
             <div className="hero-atmosphere" aria-hidden="true"><i /><i /><i /><span /></div>
-            <div><p className="eyebrow">今日节奏</p><h2>{todayAttentionCount ? `今天有 ${todayAttentionCount} 项值得专注` : "今天，可以从容开始"}</h2><p>{todayAttentionCount ? "先完成到期任务，再用一轮专注推进最重要的学习。" : "当前没有到期安排。创建一个学习任务，循记会替你排好复习节奏。"}</p><div className="hero-actions">{overdueCount > 0 ? <button className="hero-action" onClick={rescheduleOverdueReviews}>重新规划 {overdueCount} 个逾期复习</button> : data.tasks.length ? <button className="hero-action" onClick={() => setTab("focus")}>开始一轮专注</button> : <button className="hero-action" onClick={() => { setNewTaskType("memory"); setShowAdd(true); }}>创建学习任务</button>}</div></div>
+            <div><p className="eyebrow">今日节奏</p><h2>{todayAttentionCount ? `今天有 ${todayAttentionCount} 项值得专注` : "今天，可以从容开始"}</h2><p>{todayAttentionCount ? "先完成到期任务，再用一轮专注推进最重要的学习。" : "当前没有到期安排。创建一个学习任务，循记会替你排好复习节奏。"}</p><div className="hero-actions">{overdueCount > 0 ? <button className="hero-action" onClick={rescheduleOverdueReviews}>重新规划 {overdueCount} 个逾期复习</button> : data.tasks.length ? <button className="hero-action" onClick={() => setTab("focus")}>开始一轮专注</button> : <button className="hero-action" onClick={() => { setCalendarDraft(null); setNewTaskType("memory"); setShowAdd(true); }}>创建学习任务</button>}</div></div>
             <div className="hero-progress"><strong>{Math.min(100, Math.round(todaySeconds / 60 / data.settings.dailyGoalMinutes * 100))}%</strong><span>今日专注目标</span></div>
           </div>
           <div className="content-grid">
             <div className="panel wide">
               <PanelTitle title="今日安排" subtitle="普通任务与到期复习统一处理" action={todayAttentionCount ? `${todayAttentionCount} 项` : "已清空"} />
-              {todayAttentionCount ? <div className="review-list">{todayNormalTasks.map((task) => <TodayNormalTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleNormalTask} />)}{dueTasks.slice(0, 6).map((task) => <TodayTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} />)}</div> : <Empty icon="✓" title="今天没有待办任务" text="可以创建新的学习任务，循记会自动安排后续复习。" action={{ label: "新建学习任务", onClick: () => { setNewTaskType("memory"); setShowAdd(true); } }} />}
+              {todayAttentionCount ? <div className="review-list">{todayNormalTasks.map((task) => <TodayNormalTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleNormalTask} />)}{dueTasks.slice(0, 6).map((task) => <TodayTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} />)}</div> : <Empty icon="✓" title="今天没有待办任务" text="可以创建新的学习任务，循记会自动安排后续复习。" action={{ label: "新建学习任务", onClick: () => { setCalendarDraft(null); setNewTaskType("memory"); setShowAdd(true); } }} />}
             </div>
             <div className="panel focus-quick">
               <PanelTitle title="快速专注" subtitle={`${data.settings.focusMinutes} 分钟一轮`} />
@@ -855,7 +885,12 @@ export function StudyApp() {
         {tab === "calendar" && <section className="page-stack calendar-page">
           <CalendarApp
             tasks={calendarTasks}
-            onCreateTask={() => { setNewTaskType("memory"); setShowAdd(true); }}
+            onCreateTask={(preset) => {
+              setCalendarDraft(preset ? { date: preset.date, startTime: preset.startTime, endTime: preset.endTime } : null);
+              setNewTaskType(preset?.type || "normal");
+              setShowAdd(true);
+            }}
+            onRescheduleTask={rescheduleCalendarTask}
             onToggleComplete={(calendarId) => {
               const [taskId, target] = String(calendarId).split(":");
               if (target === "normal") toggleNormalTask(taskId);
@@ -908,9 +943,9 @@ export function StudyApp() {
 
       <nav className="mobile-nav">{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span><NavIcon name={item.id} /></span>{item.label}</button>)}</nav>
 
-      {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}>
+      {showAdd && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowAdd(false); setCalendarDraft(null); } }}>
         <div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title">
-          <div className="modal-head"><div><p className="eyebrow">新任务</p><h2 id="new-task-title">添加任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div>
+          <div className="modal-head"><div><p className="eyebrow">新任务</p><h2 id="new-task-title">添加任务</h2></div><button className="close" onClick={() => { setShowAdd(false); setCalendarDraft(null); }} aria-label="关闭">×</button></div>
           <form onSubmit={createTask}>
             <div className="task-type-switch" role="radiogroup" aria-label="任务类型">
               <button type="button" role="radio" aria-checked={newTaskType === "normal"} className={newTaskType === "normal" ? "active" : ""} onClick={() => setNewTaskType("normal")}><strong>普通任务</strong><small>只安排一次，不生成复习</small></button>
@@ -920,12 +955,12 @@ export function StudyApp() {
             <label>任务名称<input name="title" autoFocus maxLength={100} placeholder={newTaskType === "memory" ? "例如：英语 Unit 3 单词" : "例如：下午 3 点产品会议"} required /></label>
             <div className="form-grid">
               <label>分类<select name="category" defaultValue={data.categories[0]?.id || ""}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-              <label>{newTaskType === "memory" ? "首次学习日期" : "任务日期"}<input name="startDate" type="date" defaultValue={today} required /></label>
+              <label>{newTaskType === "memory" ? "首次学习日期" : "任务日期"}<input name="startDate" type="date" defaultValue={calendarDraft?.date || today} required /></label>
             </div>
-            {newTaskType === "normal" && <div className="form-grid"><label>开始时间<input name="startTime" type="time" /></label><label>结束时间<input name="endTime" type="time" /></label></div>}
+            {newTaskType === "normal" && <div className="form-grid"><label>开始时间<input name="startTime" type="time" defaultValue={calendarDraft?.startTime || ""} /></label><label>结束时间<input name="endTime" type="time" defaultValue={calendarDraft?.endTime || ""} /></label></div>}
             <label>标签<input name="tags" placeholder="例如：工作、错题、背诵（逗号分隔）" /></label>
             {newTaskType === "memory" && <div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div>}
-            <div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">{newTaskType === "memory" ? "添加并排期" : "添加任务"}</button></div>
+            <div className="modal-actions"><button type="button" className="ghost" onClick={() => { setShowAdd(false); setCalendarDraft(null); }}>取消</button><button className="primary">{newTaskType === "memory" ? "添加并排期" : "添加任务"}</button></div>
           </form>
         </div>
       </div>}

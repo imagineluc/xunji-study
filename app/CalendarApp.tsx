@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { CSSProperties, DragEvent, MouseEvent, TouchEvent, useMemo, useState } from "react";
 import styles from "./CalendarApp.module.css";
 
 export type CalendarTask = {
@@ -12,46 +12,31 @@ export type CalendarTask = {
   startTime?: string;
   endTime?: string;
   completed?: boolean;
+  color?: string;
+  category?: string;
 };
 
-export type CalendarViewProps = {
-  tasks: CalendarTask[];
+export type CalendarCreatePreset = {
+  type?: "normal" | "memory";
   date: string;
-  completedIds: Set<string | number>;
-  onToggleComplete: (id: string | number) => void;
+  startTime?: string;
+  endTime?: string;
 };
 
-type ViewMode = "day" | "week" | "month";
-const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-const HOURS = Array.from({ length: 13 }, (_, index) => index + 8);
+type CalendarAppProps = {
+  tasks?: CalendarTask[];
+  onToggleComplete?: (id: string | number) => void;
+  onCreateTask?: (preset?: CalendarCreatePreset) => void;
+  onRescheduleTask?: (id: string | number, date: string, startTime?: string, endTime?: string) => void;
+};
 
-const DEMO_TASKS: CalendarTask[] = [
-  { id: 1, type: "normal", title: "和产品经理同步日历方案", date: "2026-07-18", startTime: "09:30", endTime: "10:30" },
-  { id: 2, type: "normal", title: "整理第二季度学习笔记", date: "2026-07-18", startTime: "13:30", endTime: "15:00" },
-  { id: 3, type: "normal", title: "完成交互原型评审", date: "2026-07-18", startTime: "16:00", endTime: "17:00" },
-  { id: 4, type: "memory", title: "背诵流体力学第一章", stage: 3, date: "2026-07-18" },
-  { id: 5, type: "memory", title: "复习高等数学：曲面积分", stage: 2, date: "2026-07-18" },
-  { id: 6, type: "memory", title: "英语核心词组 · Unit 08", stage: 5, date: "2026-07-18", completed: true },
-  { id: 7, type: "memory", title: "计算机网络：传输层", stage: 1, date: "2026-07-18" },
-  { id: 8, type: "memory", title: "线性代数错题回顾", stage: 4, date: "2026-07-18" },
-  { id: 9, type: "normal", title: "晨间规划", date: "2026-07-13", startTime: "09:00", endTime: "09:30" },
-  { id: 10, type: "memory", title: "材料力学习题", stage: 2, date: "2026-07-13" },
-  { id: 11, type: "normal", title: "项目周会", date: "2026-07-14", startTime: "10:00", endTime: "11:00" },
-  { id: 12, type: "memory", title: "概率论公式", stage: 1, date: "2026-07-14" },
-  { id: 13, type: "normal", title: "深度工作 · 原型", date: "2026-07-15", startTime: "14:00", endTime: "16:00" },
-  { id: 14, type: "memory", title: "英语听力精听", stage: 3, date: "2026-07-15" },
-  { id: 15, type: "memory", title: "操作系统进程调度", stage: 2, date: "2026-07-16" },
-  { id: 16, type: "normal", title: "论文资料检索", date: "2026-07-16", startTime: "15:30", endTime: "17:00" },
-  { id: 17, type: "normal", title: "健身训练", date: "2026-07-17", startTime: "18:00", endTime: "19:00" },
-  { id: 18, type: "memory", title: "信号与系统", stage: 4, date: "2026-07-17" },
-  { id: 19, type: "memory", title: "数据库范式", stage: 2, date: "2026-07-19" },
-  { id: 20, type: "normal", title: "周复盘", date: "2026-07-19", startTime: "19:00", endTime: "20:00" },
-  { id: 21, type: "memory", title: "工程热力学第二章", stage: 1, date: "2026-07-21" },
-  { id: 22, type: "normal", title: "实验报告定稿", date: "2026-07-22", startTime: "09:00", endTime: "11:00" },
-  { id: 23, type: "memory", title: "机械原理知识图谱", stage: 3, date: "2026-07-24" },
-  { id: 24, type: "memory", title: "英语核心词组 · Unit 09", stage: 1, date: "2026-07-27" },
-  { id: 25, type: "normal", title: "月度学习复盘", date: "2026-07-31", startTime: "16:00", endTime: "17:30" },
-];
+type ViewMode = "day" | "threeDay" | "week" | "month";
+
+const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+const START_HOUR = 6;
+const END_HOUR = 24;
+const HOUR_HEIGHT = 72;
+const HOURS = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, index) => index + START_HOUR);
 
 function parseDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -86,67 +71,178 @@ function getMonthCells(value: string) {
   const first = new Date(date.getFullYear(), date.getMonth(), 1, 12);
   const start = new Date(first);
   start.setDate(first.getDate() - ((first.getDay() + 6) % 7));
-  return Array.from({ length: 42 }, (_, index) => {
-    const cell = new Date(start);
-    cell.setDate(start.getDate() + index);
-    return toISO(cell);
-  });
+  return Array.from({ length: 42 }, (_, index) => addDays(toISO(start), index));
 }
 
-function formatTitle(value: string, view: ViewMode) {
-  const date = parseDate(value);
-  if (view === "day") return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(date);
-  if (view === "week") {
-    const start = parseDate(startOfWeek(value));
-    const end = parseDate(addDays(startOfWeek(value), 6));
-    return `${date.getFullYear()}年 ${start.getMonth() + 1}月${start.getDate()}日—${end.getMonth() + 1}月${end.getDate()}日`;
-  }
-  return `${date.getFullYear()}年 ${date.getMonth() + 1}月`;
-}
-
-function timeToMinutes(value = "08:00") {
+function timeToMinutes(value = `${START_HOUR.toString().padStart(2, "0")}:00`) {
   const [hours, minutes] = value.split(":").map(Number);
   return hours * 60 + minutes;
 }
 
-function tasksOn(tasks: CalendarTask[], date: string) {
-  return tasks.filter((task) => task.date === date);
+function minutesToTime(value: number) {
+  const minutes = Math.max(0, Math.min(23 * 60 + 30, value));
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
-function MemoryTask({ task, done, onToggle, compact = false }: { task: CalendarTask; done: boolean; onToggle: () => void; compact?: boolean }) {
+function formatRange(value: string, view: ViewMode) {
+  const date = parseDate(value);
+  if (view === "day") {
+    return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(date);
+  }
+  if (view === "month") return `${date.getFullYear()}年 ${date.getMonth() + 1}月`;
+  const first = view === "week" ? startOfWeek(value) : value;
+  const last = addDays(first, view === "week" ? 6 : 2);
+  const startDate = parseDate(first);
+  const endDate = parseDate(last);
+  const endLabel = startDate.getMonth() === endDate.getMonth()
+    ? `${endDate.getDate()}日`
+    : `${endDate.getMonth() + 1}月${endDate.getDate()}日`;
+  return `${startDate.getFullYear()}年 ${startDate.getMonth() + 1}月${startDate.getDate()}日—${endLabel}`;
+}
+
+function taskTimeLabel(task: CalendarTask) {
+  if (!task.startTime) return task.type === "memory" ? `第 ${task.stage ?? 1} 轮复习` : "全天";
+  return `${task.startTime}${task.endTime ? `—${task.endTime}` : ""}`;
+}
+
+function getViewDates(date: string, view: ViewMode) {
+  if (view === "week") {
+    const start = startOfWeek(date);
+    return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  }
+  if (view === "threeDay") return Array.from({ length: 3 }, (_, index) => addDays(date, index));
+  return [date];
+}
+
+function shiftPeriod(date: string, view: ViewMode, direction: number) {
+  if (view === "day") return addDays(date, direction);
+  if (view === "threeDay") return addDays(date, direction * 3);
+  if (view === "week") return addDays(date, direction * 7);
+  const next = parseDate(date);
+  next.setMonth(next.getMonth() + direction, 1);
+  return toISO(next);
+}
+
+function TimelineTask({ task, onSelect, onToggle, onDragStart }: {
+  task: CalendarTask;
+  onSelect: () => void;
+  onToggle: () => void;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
+}) {
+  const start = Math.max(0, timeToMinutes(task.startTime) - START_HOUR * 60);
+  const duration = Math.max(30, timeToMinutes(task.endTime ?? task.startTime) - timeToMinutes(task.startTime));
+  const style = {
+    "--task-start": start,
+    "--task-duration": duration,
+    "--task-color": task.color || "var(--ui-action)",
+  } as CSSProperties;
   return (
-    <div className={`${styles.memoryTask} ${done ? styles.taskDone : ""} ${compact ? styles.compactTask : ""}`}>
-      <button className={styles.checkButton} onClick={onToggle} aria-label={`${done ? "恢复" : "完成"}复习：${task.title}`} aria-pressed={done}>{done ? "✓" : ""}</button>
-      <span className={styles.brain} aria-hidden="true">🧠</span>
-      <span className={styles.taskTitle}>{task.title}</span>
-      <small>第{task.stage ?? 1}轮</small>
-    </div>
+    <article
+      className={`${styles.timedTask} ${task.completed ? styles.completedTask : ""}`}
+      style={style}
+      draggable
+      onDragStart={onDragStart}
+      onClick={(event) => { event.stopPropagation(); onSelect(); }}
+      tabIndex={0}
+      onKeyDown={(event) => event.key === "Enter" && onSelect()}
+      aria-label={`${task.title}，${taskTimeLabel(task)}`}
+    >
+      <button
+        type="button"
+        className={styles.taskCheck}
+        aria-label={task.completed ? "恢复任务" : "完成任务"}
+        aria-pressed={task.completed}
+        onClick={(event) => { event.stopPropagation(); onToggle(); }}
+      >{task.completed ? "✓" : ""}</button>
+      <div><strong>{task.title}</strong><span>{taskTimeLabel(task)}</span></div>
+    </article>
   );
 }
 
-export function DayView({ tasks, date, completedIds, onToggleComplete }: CalendarViewProps) {
-  const dailyTasks = tasksOn(tasks, date);
-  const memoryTasks = dailyTasks.filter((task) => task.type === "memory");
-  const allDayNormalTasks = dailyTasks.filter((task) => task.type === "normal" && !task.startTime);
-  const normalTasks = dailyTasks.filter((task) => task.type === "normal" && task.startTime);
+function TimelineView({ dates, tasks, onCreate, onSelect, onToggle, onReschedule }: {
+  dates: string[];
+  tasks: CalendarTask[];
+  onCreate: (preset: CalendarCreatePreset) => void;
+  onSelect: (task: CalendarTask) => void;
+  onToggle: (id: string | number) => void;
+  onReschedule: (task: CalendarTask, date: string, startTime?: string, endTime?: string) => void;
+}) {
+  const dayMin = dates.length === 1 ? 360 : dates.length === 3 ? 220 : 148;
+  const gridStyle = { "--days": dates.length, "--day-min": `${dayMin}px` } as CSSProperties;
+
+  function createAt(event: MouseEvent<HTMLDivElement>, day: string) {
+    if (event.target !== event.currentTarget) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const rawMinutes = START_HOUR * 60 + ((event.clientY - rect.top) / HOUR_HEIGHT) * 60;
+    const snapped = Math.round(rawMinutes / 30) * 30;
+    onCreate({ type: "normal", date: day, startTime: minutesToTime(snapped), endTime: minutesToTime(snapped + 60) });
+  }
+
+  function dropAt(event: DragEvent<HTMLDivElement>, day: string, allDay = false) {
+    event.preventDefault();
+    const id = event.dataTransfer.getData("text/calendar-task");
+    const task = tasks.find((item) => String(item.id) === id);
+    if (!task) return;
+    if (allDay || !task.startTime) return onReschedule(task, day, task.startTime, task.endTime);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const rawMinutes = START_HOUR * 60 + ((event.clientY - rect.top) / HOUR_HEIGHT) * 60;
+    const snapped = Math.round(rawMinutes / 30) * 30;
+    const duration = Math.max(30, timeToMinutes(task.endTime ?? task.startTime) - timeToMinutes(task.startTime));
+    onReschedule(task, day, minutesToTime(snapped), minutesToTime(snapped + duration));
+  }
+
+  const now = new Date();
+  const nowOffset = (now.getHours() * 60 + now.getMinutes() - START_HOUR * 60) / 60 * HOUR_HEIGHT;
   return (
-    <div className={styles.dayView}>
-      <section className={styles.allDay} aria-labelledby="all-day-title">
-        <div className={styles.allDayLabel}><span id="all-day-title">全天任务</span><small>{memoryTasks.filter((task) => !completedIds.has(task.id)).length} 项待复习</small></div>
-        <div className={styles.allDayTasks}>
-          {allDayNormalTasks.map((task) => <div className={styles.allDayNormal} key={task.id}><i aria-hidden="true" /><span>{task.title}</span></div>)}
-          {memoryTasks.length ? memoryTasks.map((task) => <MemoryTask key={task.id} task={task} done={completedIds.has(task.id)} onToggle={() => onToggleComplete(task.id)} />) : <div className={styles.emptyInline}>今天没有安排复习</div>}
+    <div className={styles.timelineScroller}>
+      <div className={styles.timelineBoard} style={gridStyle} data-days={dates.length}>
+        <div className={styles.timelineHeader}>
+          <div className={styles.cornerLabel}>GMT+8</div>
+          {dates.map((day) => {
+            const parsed = parseDate(day);
+            const current = day === todayISO();
+            return <button key={day} type="button" className={current ? styles.todayHeader : ""} onClick={() => onCreate({ type: "normal", date: day })}><span>{WEEKDAYS[parsed.getDay()]}</span><strong>{parsed.getDate()}</strong></button>;
+          })}
         </div>
-      </section>
-      <div className={styles.timeline}>
-        <div className={styles.hourLabels} aria-hidden="true">{HOURS.map((hour) => <span key={hour}>{String(hour).padStart(2, "0")}:00</span>)}</div>
-        <div className={styles.timeCanvas}>
-          {HOURS.slice(0, -1).map((hour) => <div className={styles.hourLine} key={hour} />)}
-          {normalTasks.map((task) => {
-            const start = Math.max(0, timeToMinutes(task.startTime) - 8 * 60);
-            const duration = Math.max(45, timeToMinutes(task.endTime ?? task.startTime) - timeToMinutes(task.startTime));
-            const style = { "--task-start": start, "--task-duration": duration } as CSSProperties;
-            return <article className={styles.timedTask} style={style} key={task.id}><i aria-hidden="true" /><div><strong>{task.title}</strong><span>{task.startTime}—{task.endTime ?? "待定"}</span></div></article>;
+        <div className={styles.allDayRow}>
+          <div className={styles.allDayTitle}><span>全天</span></div>
+          {dates.map((day) => {
+            const dayTasks = tasks.filter((task) => task.date === day && !task.startTime);
+            return <div key={day} className={styles.allDayColumn} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropAt(event, day, true)}>
+              {dayTasks.map((task) => <button
+                type="button"
+                draggable
+                onDragStart={(event) => event.dataTransfer.setData("text/calendar-task", String(task.id))}
+                onClick={() => onSelect(task)}
+                className={`${styles.allDayTask} ${task.type === "memory" ? styles.memoryTask : ""} ${task.completed ? styles.completedTask : ""}`}
+                style={{ "--task-color": task.color || "var(--ui-action)" } as CSSProperties}
+                key={task.id}
+              ><i />{task.type === "memory" && <span className={styles.memoryMark}>记</span>}<span>{task.title}</span><small>{task.type === "memory" ? `R${task.stage ?? 1}` : ""}</small></button>)}
+              <button className={styles.quickAddAllDay} type="button" onClick={() => onCreate({ type: "normal", date: day })}>＋</button>
+            </div>;
+          })}
+        </div>
+        <div className={styles.timelineBody}>
+          <div className={styles.timeRail}>{HOURS.map((hour) => <span key={hour}>{hour < END_HOUR ? `${String(hour).padStart(2, "0")}:00` : ""}</span>)}</div>
+          {dates.map((day) => {
+            const timed = tasks.filter((task) => task.date === day && task.startTime);
+            return <div
+              className={`${styles.dayColumn} ${day === todayISO() ? styles.todayColumn : ""}`}
+              key={day}
+              onClick={(event) => createAt(event, day)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => dropAt(event, day)}
+            >
+              {HOURS.slice(0, -1).map((hour) => <div className={styles.hourLine} key={hour} />)}
+              {day === todayISO() && nowOffset >= 0 && nowOffset <= (END_HOUR - START_HOUR) * HOUR_HEIGHT && <div className={styles.nowLine} style={{ top: nowOffset }}><i /></div>}
+              {timed.map((task) => <TimelineTask
+                key={task.id}
+                task={task}
+                onSelect={() => onSelect(task)}
+                onToggle={() => onToggle(task.id)}
+                onDragStart={(event) => event.dataTransfer.setData("text/calendar-task", String(task.id))}
+              />)}
+            </div>;
           })}
         </div>
       </div>
@@ -154,98 +250,128 @@ export function DayView({ tasks, date, completedIds, onToggleComplete }: Calenda
   );
 }
 
-export function WeekView({ tasks, date, completedIds, onToggleComplete }: CalendarViewProps) {
-  const weekStart = startOfWeek(date);
-  const dates = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
-  function toggleExpanded(day: string) {
-    setExpandedDates((current) => { const next = new Set(current); if (next.has(day)) next.delete(day); else next.add(day); return next; });
-  }
-  return (
-    <div className={styles.weekScroller}><div className={styles.weekGrid}>
-      {dates.map((day, index) => {
-        const daily = tasksOn(tasks, day);
-        const memory = daily.filter((task) => task.type === "memory");
-        const normal = daily.filter((task) => task.type === "normal");
-        const expanded = expandedDates.has(day);
-        return <section className={`${styles.weekDay} ${day === todayISO() ? styles.currentDay : ""}`} key={day} aria-label={`${WEEKDAYS[index]} ${parseDate(day).getDate()}日`}>
-          <header><span>{WEEKDAYS[index]}</span><strong>{parseDate(day).getDate()}</strong></header>
-          <div className={styles.weekTasks}>
-            {normal.map((task) => <article className={styles.weekNormalTask} key={task.id}><i aria-hidden="true" /><span>{task.startTime}</span><strong>{task.title}</strong></article>)}
-            {(expanded ? memory : memory.slice(0, 3)).map((task) => <MemoryTask key={task.id} task={task} done={completedIds.has(task.id)} onToggle={() => onToggleComplete(task.id)} compact />)}
-            {memory.length > 3 && <button className={styles.expandButton} onClick={() => toggleExpanded(day)} aria-expanded={expanded}>🧠 {expanded ? "收起复习" : `还有 ${memory.length - 3} 项复习`}</button>}
-            {!daily.length && <span className={styles.emptyDay}>暂无安排</span>}
-          </div>
-        </section>;
-      })}
-    </div></div>
-  );
-}
-
-export function MonthView({ tasks, date, completedIds }: CalendarViewProps) {
+function MonthView({ date, tasks, onSelectDate, onSelectTask, onCreate }: {
+  date: string;
+  tasks: CalendarTask[];
+  onSelectDate: (date: string) => void;
+  onSelectTask: (task: CalendarTask) => void;
+  onCreate: (preset: CalendarCreatePreset) => void;
+}) {
   const cells = getMonthCells(date);
-  const currentMonth = parseDate(date).getMonth();
-  return (
-    <div className={styles.monthScroller}>
-      <div className={styles.monthWeekdays}>{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
+  const month = parseDate(date).getMonth();
+  return <div className={styles.monthScroller}>
+    <div className={styles.monthBoard}>
+      <div className={styles.monthWeekdays}>{["周一", "周二", "周三", "周四", "周五", "周六", "周日"].map((day) => <span key={day}>{day}</span>)}</div>
       <div className={styles.monthGrid}>{cells.map((day) => {
-        const daily = tasksOn(tasks, day);
-        const normal = daily.filter((task) => task.type === "normal");
-        const memory = daily.filter((task) => task.type === "memory");
-        return <section className={`${styles.monthCell} ${parseDate(day).getMonth() !== currentMonth ? styles.outsideMonth : ""} ${day === todayISO() ? styles.currentMonthDay : ""}`} key={day}>
-          <time dateTime={day}>{parseDate(day).getDate()}</time>
-          <div className={styles.monthNormalTasks}>{normal.slice(0, 2).map((task) => <span key={task.id}>{task.title}</span>)}{normal.length > 2 && <small>+{normal.length - 2} 项</small>}</div>
-          {memory.length > 0 && <div className={styles.memoryIndicator}>
-            <button aria-label={`${memory.length} 项复习，查看清单`}><i aria-hidden="true" /><span>{memory.length}</span></button>
-            <div className={styles.tooltip} role="tooltip"><div className={styles.tooltipHeader}><span>复习清单</span><small>{memory.length} 项</small></div>
-              {memory.map((task) => <div className={completedIds.has(task.id) ? styles.tooltipDone : ""} key={task.id}><span>🧠</span><strong>{task.title}</strong><small>第{task.stage ?? 1}轮</small></div>)}
-            </div>
-          </div>}
+        const parsed = parseDate(day);
+        const dayTasks = tasks.filter((task) => task.date === day);
+        return <section className={`${styles.monthCell} ${parsed.getMonth() !== month ? styles.outsideMonth : ""} ${day === todayISO() ? styles.currentMonthDay : ""}`} key={day}>
+          <button type="button" className={styles.dateButton} onClick={() => onSelectDate(day)}><time dateTime={day}>{parsed.getDate()}</time></button>
+          <div className={styles.monthTasks}>{dayTasks.slice(0, 3).map((task) => <button
+            type="button"
+            key={task.id}
+            className={`${task.type === "memory" ? styles.monthMemory : ""} ${task.completed ? styles.completedTask : ""}`}
+            style={{ "--task-color": task.color || "var(--ui-action)" } as CSSProperties}
+            onClick={() => onSelectTask(task)}
+          ><i />{task.startTime && <small>{task.startTime}</small>}<span>{task.title}</span></button>)}</div>
+          {dayTasks.length > 3 && <button type="button" className={styles.moreTasks} onClick={() => onSelectDate(day)}>还有 {dayTasks.length - 3} 项</button>}
+          <button type="button" className={styles.cellAdd} aria-label={`在 ${day} 新建任务`} onClick={() => onCreate({ type: "normal", date: day })}>＋</button>
         </section>;
       })}</div>
     </div>
-  );
+  </div>;
 }
 
-export function CalendarApp({ tasks = DEMO_TASKS, onToggleComplete, onCreateTask }: { tasks?: CalendarTask[]; onToggleComplete?: (id: string | number) => void; onCreateTask?: () => void }) {
-  const [view, setView] = useState<ViewMode>("week");
-  const [date, setDate] = useState(() => todayISO());
-  const [completedIds, setCompletedIds] = useState<Set<string | number>>(() => new Set(tasks.filter((task) => task.completed).map((task) => task.id)));
-  useEffect(() => {
-    setCompletedIds(new Set(tasks.filter((task) => task.completed).map((task) => task.id)));
-  }, [tasks]);
-  const periodTasks = useMemo(() => {
-    if (view === "day") return tasksOn(tasks, date);
-    if (view === "week") { const start = startOfWeek(date); const end = addDays(start, 6); return tasks.filter((task) => task.date >= start && task.date <= end); }
-    return tasks.filter((task) => task.date.startsWith(date.slice(0, 7)));
-  }, [date, tasks, view]);
+function TaskDetail({ task, onClose, onToggle, onMove }: {
+  task: CalendarTask;
+  onClose: () => void;
+  onToggle: () => void;
+  onMove: (date: string) => void;
+}) {
+  const [moveDate, setMoveDate] = useState(task.date);
+  return <div className={styles.detailBackdrop} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <aside className={styles.taskDetail} role="dialog" aria-modal="true" aria-labelledby="calendar-task-title">
+      <div className={styles.detailHandle} />
+      <header><span className={task.type === "memory" ? styles.memoryBadge : styles.normalBadge}>{task.type === "memory" ? `第 ${task.stage ?? 1} 轮复习` : "普通任务"}</span><button type="button" onClick={onClose} aria-label="关闭任务详情">×</button></header>
+      <h3 id="calendar-task-title">{task.title}</h3>
+      <div className={styles.detailMeta}><div><span>日期</span><strong>{new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(parseDate(task.date))}</strong></div><div><span>时间</span><strong>{taskTimeLabel(task)}</strong></div></div>
+      <label className={styles.moveField}>调整日期<input type="date" value={moveDate} onChange={(event) => setMoveDate(event.target.value)} /></label>
+      <div className={styles.detailActions}><button type="button" className={styles.secondaryAction} onClick={() => onMove(moveDate)} disabled={moveDate === task.date}>移动到该日</button><button type="button" className={styles.primaryAction} onClick={onToggle}>{task.completed ? "恢复为待办" : "标记完成"}</button></div>
+      <p>桌面端可以直接拖动任务；手机端可在这里调整日期。</p>
+    </aside>
+  </div>;
+}
+
+export function CalendarApp({ tasks = [], onToggleComplete, onCreateTask, onRescheduleTask }: CalendarAppProps) {
+  const [view, setView] = useState<ViewMode>(() => typeof window !== "undefined" && window.innerWidth <= 760 ? "threeDay" : "week");
+  const [date, setDate] = useState(todayISO);
+  const [showCompleted, setShowCompleted] = useState(true);
+  const [showOptions, setShowOptions] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<CalendarTask | null>(null);
+  const [localDone, setLocalDone] = useState<Set<string | number>>(new Set());
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+
+  const effectiveTasks = useMemo(() => tasks
+    .map((task) => ({ ...task, completed: task.completed || localDone.has(task.id) }))
+    .filter((task) => showCompleted || !task.completed), [localDone, showCompleted, tasks]);
+  const dates = getViewDates(date, view);
+  const rangeStart = view === "week" ? startOfWeek(date) : view === "month" ? `${date.slice(0, 7)}-01` : dates[0];
+  const rangeEnd = view === "month" ? toISO(new Date(parseDate(rangeStart).getFullYear(), parseDate(rangeStart).getMonth() + 1, 0, 12)) : dates.at(-1) ?? date;
+  const periodTasks = effectiveTasks.filter((task) => task.date >= rangeStart && task.date <= rangeEnd);
+  const completedCount = periodTasks.filter((task) => task.completed).length;
   const memoryCount = periodTasks.filter((task) => task.type === "memory").length;
-  const doneCount = periodTasks.filter((task) => task.type === "memory" && completedIds.has(task.id)).length;
-  function movePeriod(direction: number) {
-    if (view === "day") return setDate(addDays(date, direction));
-    if (view === "week") return setDate(addDays(date, direction * 7));
-    const next = parseDate(date); next.setMonth(next.getMonth() + direction, 1); setDate(toISO(next));
+
+  function toggleTask(id: string | number) {
+    if (onToggleComplete) onToggleComplete(id);
+    else setLocalDone((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+    if (selectedTask?.id === id) setSelectedTask({ ...selectedTask, completed: !selectedTask.completed });
   }
-  function toggleComplete(id: string | number) {
-    if (onToggleComplete) {
-      onToggleComplete(id);
-      return;
-    }
-    setCompletedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+
+  function createTask(preset: CalendarCreatePreset) {
+    onCreateTask?.(preset);
   }
-  const sharedProps = { tasks, date, completedIds, onToggleComplete: toggleComplete };
-  return (
-    <div className={styles.embedded}>
-      <div className={styles.calendarHeading}>
-        <div><span>任务与复习计划</span><h2>{formatTitle(date, view)}</h2></div>
-        <small>{memoryCount ? `已完成 ${doneCount}/${memoryCount} 项复习` : "本周期暂无复习"}</small>
-      </div>
-      <section className={styles.toolbar} aria-label="日历工具栏">
-        <div className={styles.periodControls}><button onClick={() => movePeriod(-1)} aria-label="上一时段">‹</button><button onClick={() => setDate(todayISO())}>今天</button><button onClick={() => movePeriod(1)} aria-label="下一时段">›</button></div>
-        <div className={styles.periodMeta}>{periodTasks.length ? <><span>{periodTasks.length} 个任务</span><i /><span>{memoryCount} 次复习</span></> : <span>本周期暂无安排</span>}</div>
-        <div className={styles.viewSwitch} aria-label="切换视图">{(["day", "week", "month"] as ViewMode[]).map((mode) => <button key={mode} onClick={() => setView(mode)} className={view === mode ? styles.activeView : ""} aria-pressed={view === mode}>{{ day: "日", week: "周", month: "月" }[mode]}</button>)}</div>
-      </section>
-      <section className={`${styles.calendarFrame} ${!tasks.length ? styles.emptyFrame : ""}`}>{!tasks.length ? <div className={styles.calendarEmpty}><span aria-hidden="true">＋</span><h3>日历还没有安排</h3><p>创建一个普通任务或记忆任务，日期与复习节点会自动出现在这里。</p>{onCreateTask && <button onClick={onCreateTask}>新建学习任务</button>}</div> : <>{view === "day" && <DayView {...sharedProps} />}{view === "week" && <WeekView {...sharedProps} />}{view === "month" && <MonthView {...sharedProps} />}</>}</section>
+
+  function reschedule(task: CalendarTask, nextDate: string, startTime = task.startTime, endTime = task.endTime) {
+    onRescheduleTask?.(task.id, nextDate, startTime, endTime);
+    setSelectedTask(null);
+  }
+
+  function move(direction: number) {
+    setDate((current) => shiftPeriod(current, view, direction));
+  }
+
+  function handleTouchStart(event: TouchEvent<HTMLElement>) {
+    const touch = event.touches[0];
+    setTouchStart({ x: touch.clientX, y: touch.clientY });
+  }
+
+  function handleTouchEnd(event: TouchEvent<HTMLElement>) {
+    if (!touchStart || (view !== "day" && view !== "month")) return setTouchStart(null);
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - touchStart.x;
+    const dy = touch.clientY - touchStart.y;
+    if (Math.abs(dx) > 64 && Math.abs(dx) > Math.abs(dy) * 1.4) move(dx < 0 ? 1 : -1);
+    setTouchStart(null);
+  }
+
+  return <div className={styles.calendarApp}>
+    <div className={styles.calendarHeading}>
+      <div><span>日程与复习</span><h2>{formatRange(date, view)}</h2></div>
+      <div className={styles.headingActions}><button type="button" className={styles.iconButton} onClick={() => setShowOptions((open) => !open)} aria-expanded={showOptions} aria-label="日历显示选项">•••</button><button type="button" className={styles.addTaskButton} onClick={() => createTask({ type: "normal", date })}>＋ 新建</button></div>
+      {showOptions && <div className={styles.optionsMenu}><strong>显示选项</strong><label><span>显示已完成任务</span><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} /></label><small>时间轴显示 06:00—24:00</small></div>}
     </div>
-  );
+    <section className={styles.toolbar} aria-label="日历工具栏">
+      <div className={styles.periodControls}><button type="button" onClick={() => move(-1)} aria-label="上一时段">‹</button><button type="button" onClick={() => setDate(todayISO())}>今天</button><button type="button" onClick={() => move(1)} aria-label="下一时段">›</button></div>
+      <div className={styles.periodMeta}><span>{periodTasks.length} 项安排</span><i /><span>{memoryCount} 次复习</span><i /><span>{completedCount} 项完成</span></div>
+      <div className={styles.viewSwitch} aria-label="切换日历视图">{(["day", "threeDay", "week", "month"] as ViewMode[]).map((mode) => <button type="button" key={mode} onClick={() => setView(mode)} className={view === mode ? styles.activeView : ""} aria-pressed={view === mode}>{{ day: "日", threeDay: "3日", week: "周", month: "月" }[mode]}</button>)}</div>
+    </section>
+    <section className={styles.calendarFrame} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      {!tasks.length ? <div className={styles.calendarEmpty}><span>＋</span><h3>从第一项日程开始</h3><p>在时间轴空白处点击，即可按日期和时间快速创建任务。</p><button type="button" onClick={() => createTask({ type: "normal", date })}>新建日程</button></div>
+      : view === "month"
+        ? <MonthView date={date} tasks={effectiveTasks} onSelectTask={setSelectedTask} onCreate={createTask} onSelectDate={(day) => { setDate(day); setView("day"); }} />
+        : <TimelineView dates={dates} tasks={effectiveTasks} onCreate={createTask} onSelect={setSelectedTask} onToggle={toggleTask} onReschedule={reschedule} />}
+    </section>
+    <div className={styles.calendarHint}><span>点击空白时间快速新建</span><span>拖动任务调整日程</span><span>记忆任务会保留复习轮次</span></div>
+    {selectedTask && <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} onToggle={() => toggleTask(selectedTask.id)} onMove={(nextDate) => reschedule(selectedTask, nextDate)} />}
+  </div>;
 }
