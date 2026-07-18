@@ -8,6 +8,7 @@ const INTERVALS = [1, 2, 4, 7, 15];
 const LOCAL_DATA_KEY = "xunji-data-v1";
 const LOCAL_SYNC_KEY = "xunji-sync-v1";
 const LOCAL_TIMER_KEY = "xunji-timer-v1";
+const LOCAL_THEME_KEY = "xunji-theme";
 const SYNC_API_ORIGIN = (import.meta.env.VITE_SYNC_API_ORIGIN || "").trim().replace(/\/$/, "");
 
 function getSyncApiUrl() {
@@ -165,6 +166,23 @@ function NavIcon({ name }: { name: Tab }) {
   return <svg {...commonProps}><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></svg>;
 }
 
+function ThemeIcon({ theme }: { theme: "light" | "dark" }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (theme === "dark") {
+    return <svg {...commonProps}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></svg>;
+  }
+  return <svg {...commonProps}><path d="M20.4 15.5A8.5 8.5 0 0 1 8.5 3.6 8.5 8.5 0 1 0 20.4 15.5Z" /></svg>;
+}
+
 function reviewStatus(task: Task, index: number) {
   if (task.completed[index]) return "done" as const;
   const due = reviewDate(task, index);
@@ -292,6 +310,7 @@ export function StudyApp() {
   const [timerTaskId, setTimerTaskId] = useState("");
   const [now, setNow] = useState(Date.now());
   const [newCategory, setNewCategory] = useState("");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const revisionRef = useRef(0);
   const skipAutoSync = useRef(true);
 
@@ -319,6 +338,10 @@ export function StudyApp() {
           completed: Boolean(task.completed[index]),
         })),
       ]), [data.tasks]);
+
+  useEffect(() => {
+    setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+  }, []);
 
   useEffect(() => {
     try {
@@ -374,6 +397,14 @@ export function StudyApp() {
   function notify(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 2200);
+  }
+
+  function toggleTheme() {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = nextTheme;
+    document.documentElement.style.colorScheme = nextTheme;
+    localStorage.setItem(LOCAL_THEME_KEY, nextTheme);
+    setTheme(nextTheme);
   }
 
   function updateTask(id: string, patch: Partial<Task>) {
@@ -779,7 +810,12 @@ export function StudyApp() {
       <main className="main">
         <header className="topbar">
           <div><p className="eyebrow date-time" suppressHydrationWarning>{dateTimeLabel(now)}</p><h1>{NAV_ITEMS.find((item) => item.id === tab)?.label}</h1></div>
-          <button className="primary" onClick={() => { setNewTaskType("memory"); setShowAdd(true); }}>＋ 新建任务</button>
+          <div className="topbar-actions">
+            <button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`切换到${theme === "light" ? "深色" : "浅色"}模式`} title={`切换到${theme === "light" ? "深色" : "浅色"}模式`}>
+              <ThemeIcon theme={theme} /><span>{theme === "light" ? "深色" : "浅色"}</span>
+            </button>
+            <button className="primary" onClick={() => { setNewTaskType("memory"); setShowAdd(true); }}>＋ 新建任务</button>
+          </div>
         </header>
 
         {tab === "today" && <section className="page-stack">

@@ -14,3 +14,47 @@
 @media(max-width:760px){.appShell{display:block}.sidebar{display:none}.main{padding:24px 12px 36px}.topbar{align-items:flex-start}.syncState{display:none}.toolbar{grid-template-columns:auto 1fr;padding:8px}.periodMeta{display:none}.viewSwitch{grid-column:2}.allDay{grid-template-columns:86px minmax(0,1fr)}.allDayTasks{grid-template-columns:1fr}.timeline{grid-template-columns:86px minmax(0,1fr)}.timedTask{right:10px}}
 @media(max-width:430px){.topActions .addButton{width:34px;height:34px;overflow:hidden;padding:8px;white-space:nowrap}.topbar h1{font-size:24px}.allDayLabel{padding:18px 9px}.allDayTasks{padding:8px}}
 @media(prefers-reduced-motion:reduce){.appShell *,.appShell *::before,.appShell *::after{transition:none!important}}
+
+/* Consume the shared DESIGN.md theme tokens from globals.css. */
+.embedded{
+  --line:var(--ui-hairline);
+  --line-strong:var(--ui-hairline-strong);
+  --purple:var(--ui-action);
+  color:var(--ui-ink);
+}
+.calendarHeading span,.calendarHeading>small,.eyebrow{color:var(--ui-muted)}
+.calendarHeading h2,.topbar h1{color:var(--ui-ink);font-weight:600}
+.toolbar{border-color:var(--ui-hairline);border-radius:18px 18px 0 0;background:var(--ui-surface)}
+.periodControls button,.viewSwitch button{color:var(--ui-muted)}
+.periodControls button:hover,.viewSwitch button:hover{background:var(--ui-chip);color:var(--ui-ink)}
+.periodControls button:nth-child(2){border-color:var(--ui-hairline-strong);color:var(--ui-ink-soft)}
+.periodMeta{color:var(--ui-muted)}
+.viewSwitch{border-color:var(--ui-hairline);background:var(--ui-surface-alt)}
+.viewSwitch .activeView{border-color:var(--ui-hairline-strong);background:var(--ui-surface);color:var(--ui-ink);box-shadow:none}
+.calendarFrame{border-color:var(--ui-hairline);border-radius:0 0 18px 18px;background:var(--ui-surface);overflow:hidden}
+.allDay,.allDayLabel,.timeline,.hourLabels,.hourLine,.weekDay,.weekDay>header,.monthWeekdays,.monthWeekdays span,.monthCell{border-color:var(--ui-hairline)}
+.allDayLabel span{color:var(--ui-ink-soft)}
+.allDayLabel small,.emptyInline,.emptyDay,.hourLabels span{color:var(--ui-muted)}
+.memoryTask{border-color:rgba(0,102,204,.25);background:rgba(0,102,204,.08);color:var(--ui-link)}
+.memoryTask:hover{border-color:rgba(0,102,204,.4);background:rgba(0,102,204,.12)}
+.memoryTask small{color:var(--ui-muted)}
+.checkButton{border-color:rgba(0,102,204,.35);background:var(--ui-surface);color:#fff}
+.allDayNormal,.timedTask,.weekNormalTask{border-color:var(--ui-hairline);background:var(--ui-surface-alt);color:var(--ui-ink);box-shadow:none}
+.allDayNormal i,.timedTask>i,.weekNormalTask>i{background:var(--ui-faint)}
+.timedTask strong,.weekNormalTask strong{color:var(--ui-ink)}
+.timedTask span,.weekNormalTask span{color:var(--ui-muted)}
+.weekScroller,.monthScroller{scrollbar-color:var(--ui-faint) var(--ui-surface)}
+.weekScroller::-webkit-scrollbar,.monthScroller::-webkit-scrollbar,.weekScroller::-webkit-scrollbar-track,.monthScroller::-webkit-scrollbar-track{background:var(--ui-surface)}
+.weekScroller::-webkit-scrollbar-thumb,.monthScroller::-webkit-scrollbar-thumb{border-color:var(--ui-surface);background:var(--ui-faint)}
+.weekDay>header span,.monthWeekdays span{color:var(--ui-muted)}
+.weekDay>header strong,.monthCell>time{color:var(--ui-ink-soft)}
+.currentDay>header strong,.currentMonthDay>time{background:var(--ui-ink);color:var(--ui-surface)}
+.monthNormalTasks>span{border-color:var(--ui-faint);color:var(--ui-ink-soft)}
+.monthNormalTasks small{color:var(--ui-muted)}
+.memoryIndicator>button{color:var(--ui-link)}
+.tooltip{border-color:var(--ui-hairline-strong);background:var(--ui-surface-alt);box-shadow:none}
+.tooltipHeader,.tooltip>div:not(.tooltipHeader){border-color:var(--ui-hairline)}
+.tooltipHeader span,.tooltip>div>strong{color:var(--ui-ink-soft)}
+.tooltipHeader small,.tooltip>div>small{color:var(--ui-muted)}
+.expandButton{border-color:rgba(0,102,204,.2);background:rgba(0,102,204,.05);color:var(--ui-link)}
+.expandButton:hover{background:rgba(0,102,204,.1);color:var(--ui-link)}
