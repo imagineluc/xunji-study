@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { StatusBar, Style } from "@capacitor/status-bar";
 import { CalendarApp, type CalendarTask } from "./CalendarApp";
 
 const INTERVALS = [1, 2, 4, 7, 15];
@@ -27,6 +28,11 @@ function getSyncApiUrl() {
   }
 
   return new URL("/api/sync", window.location.origin).toString();
+}
+
+function syncNativeTheme(theme: "light" | "dark") {
+  if (!Capacitor.isNativePlatform()) return;
+  void StatusBar.setStyle({ style: theme === "dark" ? Style.Dark : Style.Light });
 }
 
 type Tab = "today" | "calendar" | "tasks" | "focus" | "stats" | "settings";
@@ -339,7 +345,9 @@ export function StudyApp() {
       ]), [data.tasks]);
 
   useEffect(() => {
-    setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+    const currentTheme = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+    setTheme(currentTheme);
+    syncNativeTheme(currentTheme);
   }, []);
 
   useEffect(() => {
@@ -403,6 +411,7 @@ export function StudyApp() {
     document.documentElement.dataset.theme = nextTheme;
     document.documentElement.style.colorScheme = nextTheme;
     localStorage.setItem(LOCAL_THEME_KEY, nextTheme);
+    syncNativeTheme(nextTheme);
     setTheme(nextTheme);
   }
 

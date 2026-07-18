@@ -12,9 +12,9 @@ const config: CapacitorConfig = {
   },
   plugins: {
     StatusBar: {
-      // Let the page's mint background continue behind the system status bar.
+      // Let the active app theme continue behind the system status bar.
       overlaysWebView: true,
-      style: "LIGHT",
+      style: "DEFAULT",
     },
   },
 };
