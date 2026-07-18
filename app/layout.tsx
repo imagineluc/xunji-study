@@ -8,17 +8,22 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
   const image = `${protocol}://${host}/og.png`;
   return {
-    title: "循记 · 艾宾浩斯学习助手",
-    description: "分类复习、番茄专注与学习统计，在手机和电脑间保持同步。",
+    title: "循记日历 · 任务与记忆复习",
+    description: "把日常任务与艾宾浩斯复习安排放进同一张清晰、安静的日历。",
     manifest: "/manifest.webmanifest",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
-      title: "循记 · 艾宾浩斯学习助手",
-      description: "把要记住的事，交给节奏和重复。",
+      title: "循记日历 · 任务与记忆复习",
+      description: "一张日历，安排任务，也照顾记忆节奏。",
       type: "website",
-      images: [{ url: image, width: 1536, height: 1024, alt: "循记学习助手" }],
+      images: [{ url: image, width: 1536, height: 1024, alt: "循记日历" }],
     },
-    twitter: { card: "summary_large_image", title: "循记 · 艾宾浩斯学习助手", description: "把要记住的事，交给节奏和重复。", images: [image] },
+    twitter: {
+      card: "summary_large_image",
+      title: "循记日历 · 任务与记忆复习",
+      description: "一张日历，安排任务，也照顾记忆节奏。",
+      images: [image],
+    },
   };
 }
 
