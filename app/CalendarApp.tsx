@@ -22,7 +22,6 @@ export type CalendarViewProps = {
 };
 
 type ViewMode = "day" | "week" | "month";
-const DEMO_TODAY = "2026-07-18";
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const HOURS = Array.from({ length: 13 }, (_, index) => index + 8);
 
@@ -64,6 +63,10 @@ function toISO(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function todayISO() {
+  return toISO(new Date());
 }
 
 function addDays(value: string, amount: number) {
@@ -165,7 +168,7 @@ export function WeekView({ tasks, date, completedIds, onToggleComplete }: Calend
         const memory = daily.filter((task) => task.type === "memory");
         const normal = daily.filter((task) => task.type === "normal");
         const expanded = expandedDates.has(day);
-        return <section className={`${styles.weekDay} ${day === DEMO_TODAY ? styles.currentDay : ""}`} key={day} aria-label={`${WEEKDAYS[index]} ${parseDate(day).getDate()}日`}>
+        return <section className={`${styles.weekDay} ${day === todayISO() ? styles.currentDay : ""}`} key={day} aria-label={`${WEEKDAYS[index]} ${parseDate(day).getDate()}日`}>
           <header><span>{WEEKDAYS[index]}</span><strong>{parseDate(day).getDate()}</strong></header>
           <div className={styles.weekTasks}>
             {normal.map((task) => <article className={styles.weekNormalTask} key={task.id}><i aria-hidden="true" /><span>{task.startTime}</span><strong>{task.title}</strong></article>)}
@@ -189,7 +192,7 @@ export function MonthView({ tasks, date, completedIds }: CalendarViewProps) {
         const daily = tasksOn(tasks, day);
         const normal = daily.filter((task) => task.type === "normal");
         const memory = daily.filter((task) => task.type === "memory");
-        return <section className={`${styles.monthCell} ${parseDate(day).getMonth() !== currentMonth ? styles.outsideMonth : ""} ${day === DEMO_TODAY ? styles.currentMonthDay : ""}`} key={day}>
+        return <section className={`${styles.monthCell} ${parseDate(day).getMonth() !== currentMonth ? styles.outsideMonth : ""} ${day === todayISO() ? styles.currentMonthDay : ""}`} key={day}>
           <time dateTime={day}>{parseDate(day).getDate()}</time>
           <div className={styles.monthNormalTasks}>{normal.slice(0, 2).map((task) => <span key={task.id}>{task.title}</span>)}{normal.length > 2 && <small>+{normal.length - 2} 项</small>}</div>
           {memory.length > 0 && <div className={styles.memoryIndicator}>
@@ -204,9 +207,9 @@ export function MonthView({ tasks, date, completedIds }: CalendarViewProps) {
   );
 }
 
-export function CalendarApp({ tasks = DEMO_TASKS, onToggleComplete }: { tasks?: CalendarTask[]; onToggleComplete?: (id: string | number) => void }) {
+export function CalendarApp({ tasks = DEMO_TASKS, onToggleComplete, onCreateTask }: { tasks?: CalendarTask[]; onToggleComplete?: (id: string | number) => void; onCreateTask?: () => void }) {
   const [view, setView] = useState<ViewMode>("week");
-  const [date, setDate] = useState(DEMO_TODAY);
+  const [date, setDate] = useState(() => todayISO());
   const [completedIds, setCompletedIds] = useState<Set<string | number>>(() => new Set(tasks.filter((task) => task.completed).map((task) => task.id)));
   useEffect(() => {
     setCompletedIds(new Set(tasks.filter((task) => task.completed).map((task) => task.id)));
@@ -235,14 +238,14 @@ export function CalendarApp({ tasks = DEMO_TASKS, onToggleComplete }: { tasks?: 
     <div className={styles.embedded}>
       <div className={styles.calendarHeading}>
         <div><span>任务与复习计划</span><h2>{formatTitle(date, view)}</h2></div>
-        <small>已完成 {doneCount}/{memoryCount} 项复习</small>
+        <small>{memoryCount ? `已完成 ${doneCount}/${memoryCount} 项复习` : "本周期暂无复习"}</small>
       </div>
       <section className={styles.toolbar} aria-label="日历工具栏">
-        <div className={styles.periodControls}><button onClick={() => movePeriod(-1)} aria-label="上一时段">‹</button><button onClick={() => setDate(DEMO_TODAY)}>今天</button><button onClick={() => movePeriod(1)} aria-label="下一时段">›</button></div>
-        <div className={styles.periodMeta}><span>{periodTasks.length} 个任务</span><i /><span>{memoryCount} 次复习</span></div>
+        <div className={styles.periodControls}><button onClick={() => movePeriod(-1)} aria-label="上一时段">‹</button><button onClick={() => setDate(todayISO())}>今天</button><button onClick={() => movePeriod(1)} aria-label="下一时段">›</button></div>
+        <div className={styles.periodMeta}>{periodTasks.length ? <><span>{periodTasks.length} 个任务</span><i /><span>{memoryCount} 次复习</span></> : <span>本周期暂无安排</span>}</div>
         <div className={styles.viewSwitch} aria-label="切换视图">{(["day", "week", "month"] as ViewMode[]).map((mode) => <button key={mode} onClick={() => setView(mode)} className={view === mode ? styles.activeView : ""} aria-pressed={view === mode}>{{ day: "日", week: "周", month: "月" }[mode]}</button>)}</div>
       </section>
-      <section className={styles.calendarFrame}>{view === "day" && <DayView {...sharedProps} />}{view === "week" && <WeekView {...sharedProps} />}{view === "month" && <MonthView {...sharedProps} />}</section>
+      <section className={`${styles.calendarFrame} ${!tasks.length ? styles.emptyFrame : ""}`}>{!tasks.length ? <div className={styles.calendarEmpty}><span aria-hidden="true">＋</span><h3>日历还没有安排</h3><p>创建一个普通任务或记忆任务，日期与复习节点会自动出现在这里。</p>{onCreateTask && <button onClick={onCreateTask}>新建学习任务</button>}</div> : <>{view === "day" && <DayView {...sharedProps} />}{view === "week" && <WeekView {...sharedProps} />}{view === "month" && <MonthView {...sharedProps} />}</>}</section>
     </div>
   );
 }

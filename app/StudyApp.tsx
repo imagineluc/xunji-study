@@ -143,8 +143,7 @@ function dateLabel(value: string, withWeekday = false) {
 function dateTimeLabel(timestamp: number) {
   const date = new Date(timestamp);
   const weekday = new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(date);
-  const period = date.getHours() < 12 ? "AM" : "PM";
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${weekday} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} ${period}.`;
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 ${weekday} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function NavIcon({ name }: { name: Tab }) {
@@ -820,19 +819,13 @@ export function StudyApp() {
 
         {tab === "today" && <section className="page-stack">
           <div className="hero-card">
-            <div><p className="eyebrow">TODAY&apos;S RHYTHM</p><h2>{todayAttentionCount ? `今天有 ${todayAttentionCount} 个任务需要照顾` : "今天的安排已经清空"}</h2><p>先处理今天的普通任务和到期复习，再用一轮专注推进最重要的事项。</p>{overdueCount > 0 && <button className="hero-action" onClick={rescheduleOverdueReviews}>重新规划 {overdueCount} 个逾期复习</button>}</div>
+            <div><p className="eyebrow">今日节奏</p><h2>{todayAttentionCount ? `今天有 ${todayAttentionCount} 项值得专注` : "今天，可以从容开始"}</h2><p>{todayAttentionCount ? "先完成到期任务，再用一轮专注推进最重要的学习。" : "当前没有到期安排。创建一个学习任务，循记会替你排好复习节奏。"}</p><div className="hero-actions">{overdueCount > 0 ? <button className="hero-action" onClick={rescheduleOverdueReviews}>重新规划 {overdueCount} 个逾期复习</button> : data.tasks.length ? <button className="hero-action" onClick={() => setTab("focus")}>开始一轮专注</button> : <button className="hero-action" onClick={() => { setNewTaskType("memory"); setShowAdd(true); }}>创建学习任务</button>}</div></div>
             <div className="hero-progress"><strong>{Math.min(100, Math.round(todaySeconds / 60 / data.settings.dailyGoalMinutes * 100))}%</strong><span>今日专注目标</span></div>
-          </div>
-          <div className="metric-grid">
-            <Metric label="待复习任务" value={String(dueTasks.length)} note={dueTasks.some((task) => task.completed.some((_, i) => reviewStatus(task, i) === "overdue")) ? "包含逾期节点" : "节奏正常"} tone="warm" />
-            <Metric label="今日专注" value={minutesLabel(todaySeconds)} note={`${todaySessions.length} 个番茄记录`} />
-            <Metric label="复习总进度" value={totalReviews ? `${Math.round(completedReviews / totalReviews * 100)}%` : "0%"} note={`完成 ${completedReviews} 个节点`} />
-            <Metric label="累计投入" value={minutesLabel(totalSeconds)} note={`${data.sessions.length} 次专注`} />
           </div>
           <div className="content-grid">
             <div className="panel wide">
               <PanelTitle title="今日安排" subtitle="普通任务与到期复习统一处理" action={todayAttentionCount ? `${todayAttentionCount} 项` : "已清空"} />
-              {todayAttentionCount ? <div className="review-list">{todayNormalTasks.map((task) => <TodayNormalTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleNormalTask} />)}{dueTasks.slice(0, 6).map((task) => <TodayTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} />)}</div> : <Empty icon="✓" title="今日没有待办任务" text="可以提前复习，或者开始一轮专注。" />}
+              {todayAttentionCount ? <div className="review-list">{todayNormalTasks.map((task) => <TodayNormalTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleNormalTask} />)}{dueTasks.slice(0, 6).map((task) => <TodayTask key={task.id} task={task} category={categoryMap.get(task.categoryId)} onToggle={toggleReview} />)}</div> : <Empty icon="✓" title="今天没有待办任务" text="可以创建新的学习任务，循记会自动安排后续复习。" action={{ label: "新建学习任务", onClick: () => { setNewTaskType("memory"); setShowAdd(true); } }} />}
             </div>
             <div className="panel focus-quick">
               <PanelTitle title="快速专注" subtitle={`${data.settings.focusMinutes} 分钟一轮`} />
@@ -843,11 +836,18 @@ export function StudyApp() {
               <button className="primary block" onClick={() => { startTimer(); setTab("focus"); }}>开始专注</button>
             </div>
           </div>
+          <div className="metric-grid overview-metrics">
+            <Metric label="待复习" value={String(dueTasks.length)} note={dueTasks.some((task) => task.completed.some((_, i) => reviewStatus(task, i) === "overdue")) ? "包含逾期节点" : "节奏正常"} tone="warm" />
+            <Metric label="今日专注" value={minutesLabel(todaySeconds)} note={`${todaySessions.length} 次记录`} />
+            <Metric label="复习进度" value={totalReviews ? `${Math.round(completedReviews / totalReviews * 100)}%` : "—"} note={totalReviews ? `完成 ${completedReviews} 个节点` : "等待第一个任务"} />
+            <Metric label="累计投入" value={totalSeconds ? minutesLabel(totalSeconds) : "—"} note={data.sessions.length ? `${data.sessions.length} 次专注` : "尚无专注记录"} />
+          </div>
         </section>}
 
         {tab === "calendar" && <section className="page-stack calendar-page">
           <CalendarApp
             tasks={calendarTasks}
+            onCreateTask={() => { setNewTaskType("memory"); setShowAdd(true); }}
             onToggleComplete={(calendarId) => {
               const [taskId, target] = String(calendarId).split(":");
               if (target === "normal") toggleNormalTask(taskId);
@@ -867,7 +867,7 @@ export function StudyApp() {
 
         {tab === "focus" && <section className="page-stack focus-layout">
           <div className="panel timer-panel">
-            <p className="eyebrow">FOCUS SESSION</p>
+            <p className="eyebrow">专注计时</p>
             <select value={timer?.taskId || timerTaskId} onChange={(event) => setTimerTaskId(event.target.value)} disabled={Boolean(timer)} aria-label="当前专注任务"><option value="">选择专注任务</option>{data.tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>
             <div className={`timer-ring ${timer?.running ? "running" : ""}`} style={{ "--progress": timer ? `${Math.max(0, 100 - remaining / timer.durationSec * 100)}%` : "0%" } as React.CSSProperties}>
               <div><strong>{String(Math.floor((timer ? remaining : data.settings.focusMinutes * 60) / 60)).padStart(2, "0")}:{String((timer ? remaining : 0) % 60).padStart(2, "0")}</strong><span>{timer ? (timer.running ? "保持专注" : "已暂停") : "准备开始"}</span></div>
@@ -902,7 +902,7 @@ export function StudyApp() {
 
       {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}>
         <div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title">
-          <div className="modal-head"><div><p className="eyebrow">NEW TASK</p><h2 id="new-task-title">添加任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div>
+          <div className="modal-head"><div><p className="eyebrow">新任务</p><h2 id="new-task-title">添加任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div>
           <form onSubmit={createTask}>
             <div className="task-type-switch" role="radiogroup" aria-label="任务类型">
               <button type="button" role="radio" aria-checked={newTaskType === "normal"} className={newTaskType === "normal" ? "active" : ""} onClick={() => setNewTaskType("normal")}><strong>普通任务</strong><small>只安排一次，不生成复习</small></button>
@@ -923,7 +923,7 @@ export function StudyApp() {
       </div>}
       {editingTask && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditingTask(null)}>
         <div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-title">
-          <div className="modal-head"><div><p className="eyebrow">EDIT TASK</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div>
+          <div className="modal-head"><div><p className="eyebrow">编辑任务</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div>
           <form onSubmit={saveEditedTask}>
             <div className={`editing-type ${editingTask.type}`}>{editingTask.type === "memory" ? "🧠 记忆任务" : "普通任务"}<small>任务类型创建后不可转换</small></div>
             <label>任务名称<input value={editingTask.title} onChange={(event) => setEditingTask({ ...editingTask, title: event.target.value })} maxLength={100} required /></label>
@@ -948,8 +948,8 @@ function PanelTitle({ title, subtitle, action }: { title: string; subtitle: stri
   return <div className="panel-title"><div><h3>{title}</h3><p>{subtitle}</p></div>{action && <span>{action}</span>}</div>;
 }
 
-function Empty({ icon, title, text }: { icon: string; title: string; text: string }) {
-  return <div className="empty"><span>{icon}</span><strong>{title}</strong><p>{text}</p></div>;
+function Empty({ icon, title, text, action }: { icon: string; title: string; text: string; action?: { label: string; onClick: () => void } }) {
+  return <div className="empty"><span>{icon}</span><strong>{title}</strong><p>{text}</p>{action && <button className="secondary empty-action" onClick={action.onClick}>{action.label}</button>}</div>;
 }
 
 function TodayTask({ task, category, onToggle }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void }) {
