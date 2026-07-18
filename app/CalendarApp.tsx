@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, DragEvent, MouseEvent, TouchEvent, useMemo, useState } from "react";
+import { CSSProperties, DragEvent, MouseEvent, PointerEvent as ReactPointerEvent, TouchEvent, useMemo, useRef, useState } from "react";
 import styles from "./CalendarApp.module.css";
 
 export type CalendarTask = {
@@ -123,11 +123,80 @@ function shiftPeriod(date: string, view: ViewMode, direction: number) {
   return toISO(next);
 }
 
-function TimelineTask({ task, onSelect, onToggle, onDragStart }: {
+type TouchTaskDrag = {
   task: CalendarTask;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  dragging: boolean;
+};
+
+function useTouchTaskDrag(onDrop: (task: CalendarTask, clientX: number, clientY: number) => void) {
+  const activeDrag = useRef<TouchTaskDrag | null>(null);
+  const suppressedClick = useRef<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  function startTaskPointer(event: ReactPointerEvent<HTMLElement>, task: CalendarTask) {
+    if (event.pointerType === "mouse" || event.button !== 0) return;
+    event.stopPropagation();
+    activeDrag.current = { task, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, dragging: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveTaskPointer(event: ReactPointerEvent<HTMLElement>) {
+    const active = activeDrag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const distance = Math.hypot(event.clientX - active.startX, event.clientY - active.startY);
+    if (!active.dragging && distance < 8) return;
+    if (!active.dragging) {
+      active.dragging = true;
+      setDraggingId(String(active.task.id));
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function finishTaskPointer(event: ReactPointerEvent<HTMLElement>) {
+    const active = activeDrag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    activeDrag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setDraggingId(null);
+    if (!active.dragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressedClick.current = String(active.task.id);
+    onDrop(active.task, event.clientX, event.clientY);
+    window.setTimeout(() => {
+      if (suppressedClick.current === String(active.task.id)) suppressedClick.current = null;
+    }, 400);
+  }
+
+  function cancelTaskPointer(event: ReactPointerEvent<HTMLElement>) {
+    if (activeDrag.current?.pointerId !== event.pointerId) return;
+    activeDrag.current = null;
+    setDraggingId(null);
+  }
+
+  function ignoreTaskClick(task: CalendarTask) {
+    if (suppressedClick.current !== String(task.id)) return false;
+    suppressedClick.current = null;
+    return true;
+  }
+
+  return { draggingId, startTaskPointer, moveTaskPointer, finishTaskPointer, cancelTaskPointer, ignoreTaskClick };
+}
+
+function TimelineTask({ task, dragging, onSelect, onToggle, onDragStart, onPointerDown, onPointerMove, onPointerUp, onPointerCancel }: {
+  task: CalendarTask;
+  dragging: boolean;
   onSelect: () => void;
   onToggle: () => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void;
+  onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => void;
 }) {
   const start = Math.max(0, timeToMinutes(task.startTime) - START_HOUR * 60);
   const duration = Math.max(30, timeToMinutes(task.endTime ?? task.startTime) - timeToMinutes(task.startTime));
@@ -138,10 +207,15 @@ function TimelineTask({ task, onSelect, onToggle, onDragStart }: {
   } as CSSProperties;
   return (
     <article
-      className={`${styles.timedTask} ${task.completed ? styles.completedTask : ""}`}
+      className={`${styles.timedTask} ${task.completed ? styles.completedTask : ""} ${dragging ? styles.touchDragging : ""}`}
       style={style}
       draggable
+      data-calendar-task="true"
       onDragStart={onDragStart}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onClick={(event) => { event.stopPropagation(); onSelect(); }}
       tabIndex={0}
       onKeyDown={(event) => event.key === "Enter" && onSelect()}
@@ -191,6 +265,21 @@ function TimelineView({ dates, tasks, onCreate, onSelect, onToggle, onReschedule
     onReschedule(task, day, minutesToTime(snapped), minutesToTime(snapped + duration));
   }
 
+  const touchDrag = useTouchTaskDrag((task, clientX, clientY) => {
+    const dropTarget = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-calendar-drop-date]");
+    const day = dropTarget?.dataset.calendarDropDate;
+    if (!dropTarget || !day) return;
+    if (dropTarget.dataset.calendarDropKind === "all-day" || !task.startTime) {
+      onReschedule(task, day, task.startTime, task.endTime);
+      return;
+    }
+    const rect = dropTarget.getBoundingClientRect();
+    const duration = Math.max(30, timeToMinutes(task.endTime ?? task.startTime) - timeToMinutes(task.startTime));
+    const rawMinutes = START_HOUR * 60 + ((clientY - rect.top) / HOUR_HEIGHT) * 60;
+    const snapped = Math.max(START_HOUR * 60, Math.min(END_HOUR * 60 - duration, Math.round(rawMinutes / 30) * 30));
+    onReschedule(task, day, minutesToTime(snapped), minutesToTime(snapped + duration));
+  });
+
   const now = new Date();
   const nowOffset = (now.getHours() * 60 + now.getMinutes() - START_HOUR * 60) / 60 * HOUR_HEIGHT;
   return (
@@ -208,13 +297,18 @@ function TimelineView({ dates, tasks, onCreate, onSelect, onToggle, onReschedule
           <div className={styles.allDayTitle}><span>全天</span></div>
           {dates.map((day) => {
             const dayTasks = tasks.filter((task) => task.date === day && !task.startTime);
-            return <div key={day} className={styles.allDayColumn} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropAt(event, day, true)}>
+            return <div key={day} className={styles.allDayColumn} data-calendar-drop-date={day} data-calendar-drop-kind="all-day" onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropAt(event, day, true)}>
               {dayTasks.map((task) => <button
                 type="button"
                 draggable
+                data-calendar-task="true"
                 onDragStart={(event) => event.dataTransfer.setData("text/calendar-task", String(task.id))}
-                onClick={() => onSelect(task)}
-                className={`${styles.allDayTask} ${task.type === "memory" ? styles.memoryTask : ""} ${task.completed ? styles.completedTask : ""}`}
+                onPointerDown={(event) => touchDrag.startTaskPointer(event, task)}
+                onPointerMove={touchDrag.moveTaskPointer}
+                onPointerUp={touchDrag.finishTaskPointer}
+                onPointerCancel={touchDrag.cancelTaskPointer}
+                onClick={() => { if (!touchDrag.ignoreTaskClick(task)) onSelect(task); }}
+                className={`${styles.allDayTask} ${task.type === "memory" ? styles.memoryTask : ""} ${task.completed ? styles.completedTask : ""} ${touchDrag.draggingId === String(task.id) ? styles.touchDragging : ""}`}
                 style={{ "--task-color": task.color || "var(--ui-action)" } as CSSProperties}
                 key={task.id}
               ><i />{task.type === "memory" && <span className={styles.memoryMark}>记</span>}<span>{task.title}</span><small>{task.type === "memory" ? `R${task.stage ?? 1}` : ""}</small></button>)}
@@ -229,6 +323,8 @@ function TimelineView({ dates, tasks, onCreate, onSelect, onToggle, onReschedule
             return <div
               className={`${styles.dayColumn} ${day === todayISO() ? styles.todayColumn : ""}`}
               key={day}
+              data-calendar-drop-date={day}
+              data-calendar-drop-kind="timeline"
               onClick={(event) => createAt(event, day)}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => dropAt(event, day)}
@@ -238,9 +334,14 @@ function TimelineView({ dates, tasks, onCreate, onSelect, onToggle, onReschedule
               {timed.map((task) => <TimelineTask
                 key={task.id}
                 task={task}
-                onSelect={() => onSelect(task)}
+                dragging={touchDrag.draggingId === String(task.id)}
+                onSelect={() => { if (!touchDrag.ignoreTaskClick(task)) onSelect(task); }}
                 onToggle={() => onToggle(task.id)}
                 onDragStart={(event) => event.dataTransfer.setData("text/calendar-task", String(task.id))}
+                onPointerDown={(event) => touchDrag.startTaskPointer(event, task)}
+                onPointerMove={touchDrag.moveTaskPointer}
+                onPointerUp={touchDrag.finishTaskPointer}
+                onPointerCancel={touchDrag.cancelTaskPointer}
               />)}
             </div>;
           })}
@@ -250,29 +351,57 @@ function TimelineView({ dates, tasks, onCreate, onSelect, onToggle, onReschedule
   );
 }
 
-function MonthView({ date, tasks, onSelectDate, onSelectTask, onCreate }: {
+function MonthView({ date, tasks, onSelectDate, onSelectTask, onCreate, onReschedule }: {
   date: string;
   tasks: CalendarTask[];
   onSelectDate: (date: string) => void;
   onSelectTask: (task: CalendarTask) => void;
   onCreate: (preset: CalendarCreatePreset) => void;
+  onReschedule: (task: CalendarTask, date: string, startTime?: string, endTime?: string) => void;
 }) {
   const cells = getMonthCells(date);
   const month = parseDate(date).getMonth();
+  const touchDrag = useTouchTaskDrag((task, clientX, clientY) => {
+    const dropTarget = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-calendar-drop-date]");
+    const day = dropTarget?.dataset.calendarDropDate;
+    if (day) onReschedule(task, day, task.startTime, task.endTime);
+  });
+
+  function dropOnDay(event: DragEvent<HTMLElement>, day: string) {
+    event.preventDefault();
+    const id = event.dataTransfer.getData("text/calendar-task");
+    const task = tasks.find((item) => String(item.id) === id);
+    if (task) onReschedule(task, day, task.startTime, task.endTime);
+  }
+
   return <div className={styles.monthScroller}>
     <div className={styles.monthBoard}>
       <div className={styles.monthWeekdays}>{["周一", "周二", "周三", "周四", "周五", "周六", "周日"].map((day) => <span key={day}>{day}</span>)}</div>
       <div className={styles.monthGrid}>{cells.map((day) => {
         const parsed = parseDate(day);
         const dayTasks = tasks.filter((task) => task.date === day);
-        return <section className={`${styles.monthCell} ${parsed.getMonth() !== month ? styles.outsideMonth : ""} ${day === todayISO() ? styles.currentMonthDay : ""}`} key={day}>
+        return <section
+          className={`${styles.monthCell} ${parsed.getMonth() !== month ? styles.outsideMonth : ""} ${day === todayISO() ? styles.currentMonthDay : ""}`}
+          key={day}
+          data-calendar-drop-date={day}
+          data-calendar-drop-kind="month"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => dropOnDay(event, day)}
+        >
           <button type="button" className={styles.dateButton} onClick={() => onSelectDate(day)}><time dateTime={day}>{parsed.getDate()}</time></button>
           <div className={styles.monthTasks}>{dayTasks.slice(0, 3).map((task) => <button
             type="button"
             key={task.id}
-            className={`${task.type === "memory" ? styles.monthMemory : ""} ${task.completed ? styles.completedTask : ""}`}
+            draggable
+            data-calendar-task="true"
+            className={`${task.type === "memory" ? styles.monthMemory : ""} ${task.completed ? styles.completedTask : ""} ${touchDrag.draggingId === String(task.id) ? styles.touchDragging : ""}`}
             style={{ "--task-color": task.color || "var(--ui-action)" } as CSSProperties}
-            onClick={() => onSelectTask(task)}
+            onDragStart={(event) => event.dataTransfer.setData("text/calendar-task", String(task.id))}
+            onPointerDown={(event) => touchDrag.startTaskPointer(event, task)}
+            onPointerMove={touchDrag.moveTaskPointer}
+            onPointerUp={touchDrag.finishTaskPointer}
+            onPointerCancel={touchDrag.cancelTaskPointer}
+            onClick={() => { if (!touchDrag.ignoreTaskClick(task)) onSelectTask(task); }}
           ><i />{task.startTime && <small>{task.startTime}</small>}<span>{task.title}</span></button>)}</div>
           {dayTasks.length > 3 && <button type="button" className={styles.moreTasks} onClick={() => onSelectDate(day)}>还有 {dayTasks.length - 3} 项</button>}
           <button type="button" className={styles.cellAdd} aria-label={`在 ${day} 新建任务`} onClick={() => onCreate({ type: "normal", date: day })}>＋</button>
@@ -297,7 +426,7 @@ function TaskDetail({ task, onClose, onToggle, onMove }: {
       <div className={styles.detailMeta}><div><span>日期</span><strong>{new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(parseDate(task.date))}</strong></div><div><span>时间</span><strong>{taskTimeLabel(task)}</strong></div></div>
       <label className={styles.moveField}>调整日期<input type="date" value={moveDate} onChange={(event) => setMoveDate(event.target.value)} /></label>
       <div className={styles.detailActions}><button type="button" className={styles.secondaryAction} onClick={() => onMove(moveDate)} disabled={moveDate === task.date}>移动到该日</button><button type="button" className={styles.primaryAction} onClick={onToggle}>{task.completed ? "恢复为待办" : "标记完成"}</button></div>
-      <p>桌面端可以直接拖动任务；手机端可在这里调整日期。</p>
+      <p>桌面端和手机端都可直接拖动任务，也可在这里精确调整日期。</p>
     </aside>
   </div>;
 }
@@ -341,12 +470,13 @@ export function CalendarApp({ tasks = [], onToggleComplete, onCreateTask, onResc
   }
 
   function handleTouchStart(event: TouchEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest("[data-calendar-task]")) return setTouchStart(null);
     const touch = event.touches[0];
     setTouchStart({ x: touch.clientX, y: touch.clientY });
   }
 
   function handleTouchEnd(event: TouchEvent<HTMLElement>) {
-    if (!touchStart || (view !== "day" && view !== "month")) return setTouchStart(null);
+    if (!touchStart) return;
     const touch = event.changedTouches[0];
     const dx = touch.clientX - touchStart.x;
     const dy = touch.clientY - touchStart.y;
@@ -357,7 +487,7 @@ export function CalendarApp({ tasks = [], onToggleComplete, onCreateTask, onResc
   return <div className={styles.calendarApp}>
     <div className={styles.calendarHeading}>
       <div><span>日程与复习</span><h2>{formatRange(date, view)}</h2></div>
-      <div className={styles.headingActions}><button type="button" className={styles.iconButton} onClick={() => setShowOptions((open) => !open)} aria-expanded={showOptions} aria-label="日历显示选项">•••</button><button type="button" className={styles.addTaskButton} onClick={() => createTask({ type: "normal", date })}>＋ 新建</button></div>
+      <div className={styles.headingActions}><button type="button" className={styles.iconButton} onClick={() => setShowOptions((open) => !open)} aria-expanded={showOptions} aria-label="日历显示选项"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg></button><button type="button" className={styles.addTaskButton} onClick={() => createTask({ type: "normal", date })} aria-label="新建任务"><span className={styles.addTaskIcon} aria-hidden="true">＋</span><span className={styles.addTaskLabel}>新建</span></button></div>
       {showOptions && <div className={styles.optionsMenu}><strong>显示选项</strong><label><span>显示已完成任务</span><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} /></label><small>时间轴显示 06:00—24:00</small></div>}
     </div>
     <section className={styles.toolbar} aria-label="日历工具栏">
@@ -368,7 +498,7 @@ export function CalendarApp({ tasks = [], onToggleComplete, onCreateTask, onResc
     <section className={styles.calendarFrame} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       {!tasks.length ? <div className={styles.calendarEmpty}><span>＋</span><h3>从第一项日程开始</h3><p>在时间轴空白处点击，即可按日期和时间快速创建任务。</p><button type="button" onClick={() => createTask({ type: "normal", date })}>新建日程</button></div>
       : view === "month"
-        ? <MonthView date={date} tasks={effectiveTasks} onSelectTask={setSelectedTask} onCreate={createTask} onSelectDate={(day) => { setDate(day); setView("day"); }} />
+        ? <MonthView date={date} tasks={effectiveTasks} onSelectTask={setSelectedTask} onCreate={createTask} onReschedule={reschedule} onSelectDate={(day) => { setDate(day); setView("day"); }} />
         : <TimelineView dates={dates} tasks={effectiveTasks} onCreate={createTask} onSelect={setSelectedTask} onToggle={toggleTask} onReschedule={reschedule} />}
     </section>
     <div className={styles.calendarHint}><span>点击空白时间快速新建</span><span>拖动任务调整日程</span><span>记忆任务会保留复习轮次</span></div>

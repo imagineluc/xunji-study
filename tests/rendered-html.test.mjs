@@ -18,6 +18,9 @@ test("contains the interactive calendar, study experience, and deployable output
   assert.match(studyApp, /task-type-switch/);
   assert.match(calendar, /type ViewMode = "day" \| "threeDay" \| "week" \| "month"/);
   assert.match(calendar, /onRescheduleTask/);
+  assert.match(calendar, /useTouchTaskDrag/);
+  assert.match(calendar, /data-calendar-drop-date/);
+  assert.match(calendar, /onDrop=\{\(event\) => dropOnDay/);
   assert.match(calendar, /点击空白时间快速新建/);
   assert.match(calendar, /第.*轮复习/);
   assert.match(calendar, /移动到该日/);
