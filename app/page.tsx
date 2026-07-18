@@ -1,6 +1,6 @@
-import { CalendarApp } from "./CalendarApp";
+import { StudyApp } from "./StudyApp";
 import { RegisterServiceWorker } from "./register-sw";
 
 export default function Home() {
-  return <><CalendarApp /><RegisterServiceWorker /></>;
+  return <><StudyApp /><RegisterServiceWorker /></>;
 }

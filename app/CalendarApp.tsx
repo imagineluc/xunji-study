@@ -1,6 +1,6 @@
 "use client";
 
-import { CSSProperties, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import styles from "./CalendarApp.module.css";
 
 export type CalendarTask = {
@@ -124,12 +124,14 @@ function MemoryTask({ task, done, onToggle, compact = false }: { task: CalendarT
 export function DayView({ tasks, date, completedIds, onToggleComplete }: CalendarViewProps) {
   const dailyTasks = tasksOn(tasks, date);
   const memoryTasks = dailyTasks.filter((task) => task.type === "memory");
+  const allDayNormalTasks = dailyTasks.filter((task) => task.type === "normal" && !task.startTime);
   const normalTasks = dailyTasks.filter((task) => task.type === "normal" && task.startTime);
   return (
     <div className={styles.dayView}>
       <section className={styles.allDay} aria-labelledby="all-day-title">
         <div className={styles.allDayLabel}><span id="all-day-title">全天任务</span><small>{memoryTasks.filter((task) => !completedIds.has(task.id)).length} 项待复习</small></div>
         <div className={styles.allDayTasks}>
+          {allDayNormalTasks.map((task) => <div className={styles.allDayNormal} key={task.id}><i aria-hidden="true" /><span>{task.title}</span></div>)}
           {memoryTasks.length ? memoryTasks.map((task) => <MemoryTask key={task.id} task={task} done={completedIds.has(task.id)} onToggle={() => onToggleComplete(task.id)} />) : <div className={styles.emptyInline}>今天没有安排复习</div>}
         </div>
       </section>
@@ -202,10 +204,13 @@ export function MonthView({ tasks, date, completedIds }: CalendarViewProps) {
   );
 }
 
-export function CalendarApp({ tasks = DEMO_TASKS }: { tasks?: CalendarTask[] }) {
+export function CalendarApp({ tasks = DEMO_TASKS, onToggleComplete }: { tasks?: CalendarTask[]; onToggleComplete?: (id: string | number) => void }) {
   const [view, setView] = useState<ViewMode>("week");
   const [date, setDate] = useState(DEMO_TODAY);
   const [completedIds, setCompletedIds] = useState<Set<string | number>>(() => new Set(tasks.filter((task) => task.completed).map((task) => task.id)));
+  useEffect(() => {
+    setCompletedIds(new Set(tasks.filter((task) => task.completed).map((task) => task.id)));
+  }, [tasks]);
   const periodTasks = useMemo(() => {
     if (view === "day") return tasksOn(tasks, date);
     if (view === "week") { const start = startOfWeek(date); const end = addDays(start, 6); return tasks.filter((task) => task.date >= start && task.date <= end); }
@@ -219,27 +224,25 @@ export function CalendarApp({ tasks = DEMO_TASKS }: { tasks?: CalendarTask[] }) 
     const next = parseDate(date); next.setMonth(next.getMonth() + direction, 1); setDate(toISO(next));
   }
   function toggleComplete(id: string | number) {
+    if (onToggleComplete) {
+      onToggleComplete(id);
+      return;
+    }
     setCompletedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   }
   const sharedProps = { tasks, date, completedIds, onToggleComplete: toggleComplete };
   return (
-    <div className={styles.appShell}>
-      <aside className={styles.sidebar}>
-        <a href="/" className={styles.brand} aria-label="循记日历首页"><span>循</span><strong>循记</strong></a>
-        <nav aria-label="主导航"><a className={styles.activeNav} href="/"><span>◫</span>日历</a><a href="/study"><span>◎</span>记忆库</a><a href="/study"><span>◷</span>专注模式</a></nav>
-        <div className={styles.sidebarSection}><span>我的日历</span><div><i className={styles.normalLegend} />普通任务</div><div><i className={styles.memoryLegend} />记忆复习</div></div>
-        <div className={styles.progressCard}><div><span>本期复习</span><strong>{doneCount}/{memoryCount}</strong></div><div className={styles.progressTrack}><i style={{ width: `${memoryCount ? Math.round(doneCount / memoryCount * 100) : 0}%` }} /></div><small>完成一项，记忆就更稳一点</small></div>
-        <div className={styles.profile}><span>SR</span><div><strong>Serenity</strong><small>保持节奏</small></div></div>
-      </aside>
-      <main className={styles.main}>
-        <header className={styles.topbar}><div><span className={styles.eyebrow}>日历 / 任务计划</span><h1>{formatTitle(date, view)}</h1></div><div className={styles.topActions}><span className={styles.syncState}><i />本地已同步</span><a href="/study" className={styles.addButton}>＋ 新建任务</a></div></header>
-        <section className={styles.toolbar} aria-label="日历工具栏">
-          <div className={styles.periodControls}><button onClick={() => movePeriod(-1)} aria-label="上一时段">‹</button><button onClick={() => setDate(DEMO_TODAY)}>今天</button><button onClick={() => movePeriod(1)} aria-label="下一时段">›</button></div>
-          <div className={styles.periodMeta}><span>{periodTasks.length} 个任务</span><i /><span>{memoryCount} 次复习</span></div>
-          <div className={styles.viewSwitch} aria-label="切换视图">{(["day", "week", "month"] as ViewMode[]).map((mode) => <button key={mode} onClick={() => setView(mode)} className={view === mode ? styles.activeView : ""} aria-pressed={view === mode}>{{ day: "日", week: "周", month: "月" }[mode]}</button>)}</div>
-        </section>
-        <section className={styles.calendarFrame}>{view === "day" && <DayView {...sharedProps} />}{view === "week" && <WeekView {...sharedProps} />}{view === "month" && <MonthView {...sharedProps} />}</section>
-      </main>
+    <div className={styles.embedded}>
+      <div className={styles.calendarHeading}>
+        <div><span>任务与复习计划</span><h2>{formatTitle(date, view)}</h2></div>
+        <small>已完成 {doneCount}/{memoryCount} 项复习</small>
+      </div>
+      <section className={styles.toolbar} aria-label="日历工具栏">
+        <div className={styles.periodControls}><button onClick={() => movePeriod(-1)} aria-label="上一时段">‹</button><button onClick={() => setDate(DEMO_TODAY)}>今天</button><button onClick={() => movePeriod(1)} aria-label="下一时段">›</button></div>
+        <div className={styles.periodMeta}><span>{periodTasks.length} 个任务</span><i /><span>{memoryCount} 次复习</span></div>
+        <div className={styles.viewSwitch} aria-label="切换视图">{(["day", "week", "month"] as ViewMode[]).map((mode) => <button key={mode} onClick={() => setView(mode)} className={view === mode ? styles.activeView : ""} aria-pressed={view === mode}>{{ day: "日", week: "周", month: "月" }[mode]}</button>)}</div>
+      </section>
+      <section className={styles.calendarFrame}>{view === "day" && <DayView {...sharedProps} />}{view === "week" && <WeekView {...sharedProps} />}{view === "month" && <MonthView {...sharedProps} />}</section>
     </div>
   );
 }

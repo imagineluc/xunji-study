@@ -289,7 +289,7 @@
   .bar-chart { @apply h-52 gap-1.5 px-0; }
   .timer-panel { @apply min-h-0; }
   .settings-card { @apply min-h-0; }
-  .mobile-nav { @apply fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-white/[0.08] bg-black/95 px-1.5 pb-[max(.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md; }
+  .mobile-nav { @apply fixed inset-x-0 bottom-0 z-50 grid grid-cols-6 border-t border-white/[0.08] bg-black/95 px-1.5 pb-[max(.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md; }
   .mobile-nav button { @apply grid place-items-center gap-0.5 rounded-lg border border-transparent bg-transparent p-1 text-[9px] text-[#8A8F98] transition duration-150 ease-out hover:bg-white/[0.04] active:bg-white/[0.07]; }
   .mobile-nav button span { @apply grid size-7 place-items-center rounded-md border border-white/[0.06] bg-white/[0.03] text-[15px] leading-none text-[#8A8F98] transition duration-150 ease-out; }
   .mobile-nav button span svg { @apply size-4; }

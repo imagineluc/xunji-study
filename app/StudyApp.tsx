@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { CalendarApp, type CalendarTask } from "./CalendarApp";
 
 const INTERVALS = [1, 2, 4, 7, 15];
 const LOCAL_DATA_KEY = "xunji-data-v1";
@@ -27,7 +28,7 @@ function getSyncApiUrl() {
   return new URL("/api/sync", window.location.origin).toString();
 }
 
-type Tab = "today" | "tasks" | "focus" | "stats" | "settings";
+type Tab = "today" | "calendar" | "tasks" | "focus" | "stats" | "settings";
 type Category = { id: string; name: string; color: string };
 type Task = {
   id: string;
@@ -79,6 +80,7 @@ const DEFAULT_DATA: AppData = {
 
 const NAV_ITEMS: { id: Tab; label: string }[] = [
   { id: "today", label: "今日" },
+  { id: "calendar", label: "日历" },
   { id: "tasks", label: "任务" },
   { id: "focus", label: "专注" },
   { id: "stats", label: "统计" },
@@ -152,6 +154,7 @@ function NavIcon({ name }: { name: Tab }) {
   };
 
   if (name === "today") return <svg {...commonProps}><path d="M3.5 10.2 12 3.5l8.5 6.7" /><path d="M5.8 9.2v10.3h12.4V9.2" /><path d="M9.4 19.5v-5.8h5.2v5.8" /></svg>;
+  if (name === "calendar") return <svg {...commonProps}><rect x="3.5" y="5" width="17" height="15" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 13h.01M12 13h.01M16 13h.01M8 16.5h.01M12 16.5h.01" /></svg>;
   if (name === "tasks") return <svg {...commonProps}><rect x="4" y="3.5" width="16" height="17" rx="2.5" /><path d="m7.5 8.2 1.3 1.3 2.1-2.3M13.5 8.5h3M7.5 14.2l1.3 1.3 2.1-2.3M13.5 14.5h3" /></svg>;
   if (name === "focus") return <svg {...commonProps}><circle cx="12" cy="12" r="7.5" /><circle cx="12" cy="12" r="3.5" /><path d="M12 1.8v2.7M12 19.5v2.7M1.8 12h2.7M19.5 12h2.7" /></svg>;
   if (name === "stats") return <svg {...commonProps}><path d="M4 20V10.5h4V20M10 20V4h4v16M16 20v-6.5h4V20M2.5 20h19" /></svg>;
@@ -285,6 +288,17 @@ export function StudyApp() {
   const today = localISO();
   const taskMap = useMemo(() => new Map(data.tasks.map((task) => [task.id, task])), [data.tasks]);
   const categoryMap = useMemo(() => new Map(data.categories.map((category) => [category.id, category])), [data.categories]);
+  const calendarTasks = useMemo<CalendarTask[]>(() => data.tasks.flatMap((task) => [
+    { id: `${task.id}:initial`, type: "normal" as const, title: `初次学习 · ${task.title}`, date: task.startDate },
+    ...INTERVALS.map((_, index) => ({
+      id: `${task.id}:${index}`,
+      type: "memory" as const,
+      title: task.title,
+      stage: index + 1,
+      date: reviewDate(task, index),
+      completed: Boolean(task.completed[index]),
+    })),
+  ]), [data.tasks]);
 
   useEffect(() => {
     try {
@@ -751,6 +765,16 @@ export function StudyApp() {
               <button className="primary block" onClick={() => { startTimer(); setTab("focus"); }}>开始专注</button>
             </div>
           </div>
+        </section>}
+
+        {tab === "calendar" && <section className="page-stack calendar-page">
+          <CalendarApp
+            tasks={calendarTasks}
+            onToggleComplete={(calendarId) => {
+              const [taskId, index] = String(calendarId).split(":");
+              toggleReview(taskId, Number(index));
+            }}
+          />
         </section>}
 
         {tab === "tasks" && <section className="page-stack">

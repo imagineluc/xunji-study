@@ -11,7 +11,9 @@ test("contains the calendar views, study experience, and deployable output", asy
     readFile(new URL("app/layout.tsx", root), "utf8"),
     readFile(new URL("public/manifest.webmanifest", root), "utf8"),
   ]);
-  assert.match(layout, /循记日历/);
+  assert.match(layout, /循记 · 艾宾浩斯学习助手/);
+  assert.match(studyApp, /"today" \| "calendar" \| "tasks"/);
+  assert.match(studyApp, /<CalendarApp/);
   assert.match(calendar, /export function DayView/);
   assert.match(calendar, /export function WeekView/);
   assert.match(calendar, /export function MonthView/);
