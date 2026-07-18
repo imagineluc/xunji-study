@@ -830,9 +830,7 @@ export function StudyApp() {
             </div>
             <div className="panel focus-quick">
               <PanelTitle title="快速专注" subtitle={`${data.settings.focusMinutes} 分钟一轮`} />
-              <select value={timerTaskId} onChange={(event) => setTimerTaskId(event.target.value)} aria-label="选择专注任务">
-                <option value="">选择一个任务</option>{data.tasks.filter((task) => !isTaskFinished(task)).map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
-              </select>
+              <TaskPicker value={timerTaskId} onChange={setTimerTaskId} tasks={data.tasks.filter((task) => !isTaskFinished(task))} label="选择专注任务" />
               <div className="mini-timer">{data.settings.focusMinutes}<small>分钟</small></div>
               <button className="primary block" onClick={() => { startTimer(); setTab("focus"); }}>开始专注</button>
             </div>
@@ -869,7 +867,7 @@ export function StudyApp() {
         {tab === "focus" && <section className="page-stack focus-layout">
           <div className="panel timer-panel">
             <p className="eyebrow">专注计时</p>
-            <select value={timer?.taskId || timerTaskId} onChange={(event) => setTimerTaskId(event.target.value)} disabled={Boolean(timer)} aria-label="当前专注任务"><option value="">选择专注任务</option>{data.tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>
+            <TaskPicker value={timer?.taskId || timerTaskId} onChange={setTimerTaskId} tasks={data.tasks} label="当前专注任务" disabled={Boolean(timer)} />
             <div className={`timer-ring ${timer?.running ? "running" : ""}`} style={{ "--progress": timer ? `${Math.max(0, 100 - remaining / timer.durationSec * 100)}%` : "0%" } as React.CSSProperties}>
               <div><strong>{String(Math.floor((timer ? remaining : data.settings.focusMinutes * 60) / 60)).padStart(2, "0")}:{String((timer ? remaining : 0) % 60).padStart(2, "0")}</strong><span>{timer ? (timer.running ? "保持专注" : "已暂停") : "准备开始"}</span></div>
             </div>
@@ -951,6 +949,41 @@ function PanelTitle({ title, subtitle, action }: { title: string; subtitle: stri
 
 function Empty({ icon, title, text, action }: { icon: string; title: string; text: string; action?: { label: string; onClick: () => void } }) {
   return <div className="empty"><span>{icon}</span><strong>{title}</strong><p>{text}</p>{action && <button className="secondary empty-action" onClick={action.onClick}>{action.label}</button>}</div>;
+}
+
+function TaskPicker({ value, onChange, tasks, label, disabled = false }: { value: string; onChange: (value: string) => void; tasks: Task[]; label: string; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const selected = tasks.find((task) => task.id === value);
+
+  useEffect(() => {
+    function closeOnOutsidePress(event: PointerEvent) {
+      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePress);
+  }, []);
+
+  function choose(nextValue: string) {
+    onChange(nextValue);
+    setOpen(false);
+  }
+
+  return <div className={`task-picker ${open ? "open" : ""}`} ref={pickerRef} onKeyDown={(event) => {
+    if (event.key === "Escape") setOpen(false);
+    if ((event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") && !open && !disabled) {
+      event.preventDefault();
+      setOpen(true);
+    }
+  }}>
+    <button className="task-picker-trigger" type="button" onClick={() => setOpen((current) => !current)} disabled={disabled} aria-label={label} aria-haspopup="listbox" aria-expanded={open}>
+      <span className={selected ? "selected-label" : "placeholder-label"}>{selected?.title || "选择一个任务"}</span><i aria-hidden="true" />
+    </button>
+    {open && <div className="task-picker-menu" role="listbox" aria-label={label}>
+      <button type="button" role="option" aria-selected={!value} className={!value ? "selected" : ""} onClick={() => choose("")}><span>选择一个任务</span>{!value && <b aria-hidden="true">✓</b>}</button>
+      {tasks.length ? tasks.map((task) => <button type="button" role="option" aria-selected={task.id === value} className={task.id === value ? "selected" : ""} key={task.id} onClick={() => choose(task.id)}><span>{task.title}</span>{task.id === value && <b aria-hidden="true">✓</b>}</button>) : <div className="task-picker-empty">还没有可专注的任务</div>}
+    </div>}
+  </div>;
 }
 
 function TodayTask({ task, category, onToggle }: { task: Task; category?: Category; onToggle: (id: string, index: number) => void }) {
