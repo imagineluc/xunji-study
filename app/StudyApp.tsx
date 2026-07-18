@@ -819,6 +819,7 @@ export function StudyApp() {
 
         {tab === "today" && <section className="page-stack">
           <div className="hero-card">
+            <div className="hero-atmosphere" aria-hidden="true"><i /><i /><i /><span /></div>
             <div><p className="eyebrow">今日节奏</p><h2>{todayAttentionCount ? `今天有 ${todayAttentionCount} 项值得专注` : "今天，可以从容开始"}</h2><p>{todayAttentionCount ? "先完成到期任务，再用一轮专注推进最重要的学习。" : "当前没有到期安排。创建一个学习任务，循记会替你排好复习节奏。"}</p><div className="hero-actions">{overdueCount > 0 ? <button className="hero-action" onClick={rescheduleOverdueReviews}>重新规划 {overdueCount} 个逾期复习</button> : data.tasks.length ? <button className="hero-action" onClick={() => setTab("focus")}>开始一轮专注</button> : <button className="hero-action" onClick={() => { setNewTaskType("memory"); setShowAdd(true); }}>创建学习任务</button>}</div></div>
             <div className="hero-progress"><strong>{Math.min(100, Math.round(todaySeconds / 60 / data.settings.dailyGoalMinutes * 100))}%</strong><span>今日专注目标</span></div>
           </div>

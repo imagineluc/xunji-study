@@ -77,3 +77,30 @@
 .calendarEmpty button{min-height:42px;margin-top:22px;padding:10px 20px;border:1px solid var(--ui-action);border-radius:999px;background:var(--ui-action);color:#fff;font-size:15px;transition:background-color 150ms ease,transform 120ms ease}
 .calendarEmpty button:hover{background:var(--ui-action-hover)}
 .calendarEmpty button:active{transform:scale(.95)}
+
+.embedded{font-size:15px;line-height:1.5;letter-spacing:-.16px}
+.calendarHeading span,.calendarHeading>small{font-size:12px}
+.periodControls button,.viewSwitch button{font-size:13px}
+.periodMeta{font-size:12px}
+.allDayLabel span{font-size:13px}
+.allDayLabel small{font-size:11px}
+.memoryTask,.allDayNormal{font-size:12px}
+.memoryTask small{font-size:10px}
+.taskTitle{font-size:12px}
+.emptyInline,.emptyDay{font-size:11px}
+.hourLabels span{font-size:10px}
+.timedTask strong{font-size:12px}
+.timedTask span{font-size:11px}
+.weekDay>header span{font-size:11px}
+.weekDay>header strong{font-size:13px}
+.weekNormalTask span{font-size:10px}
+.weekNormalTask strong{font-size:12px}
+.compactTask .taskTitle{font-size:11px}
+.compactTask small,.expandButton{font-size:10px}
+.monthWeekdays span{font-size:11px}
+.monthCell>time{font-size:12px}
+.monthNormalTasks>span{font-size:10px}
+.monthNormalTasks small,.memoryIndicator>button{font-size:9px}
+.tooltipHeader span{font-size:11px}
+.tooltipHeader small,.tooltip>div>small{font-size:9px}
+.tooltip>div>strong,.tooltip>div>span{font-size:10px}
