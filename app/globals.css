@@ -62,6 +62,7 @@
   .sidebar nav { @apply mt-6 grid gap-1; }
   .sidebar nav button { @apply flex w-full items-center gap-3 rounded-lg border border-transparent bg-transparent px-3 py-2.5 text-left text-sm font-medium text-[#8A8F98] transition duration-150 ease-out hover:bg-white/[0.04] hover:text-[#F7F8F8] active:bg-white/[0.06]; }
   .sidebar nav button span { @apply grid size-7 place-items-center rounded-md border border-white/[0.06] bg-white/[0.03] text-[14px] leading-none text-[#8A8F98] transition duration-150 ease-out; }
+  .sidebar nav button span svg { @apply size-[17px]; }
   .sidebar nav button.active { @apply border-white/[0.08] bg-white/[0.06] font-medium text-[#F7F8F8]; }
   .sidebar nav button.active span { @apply border-[#5E6AD2]/40 bg-[#5E6AD2]/15 text-[#AEB5FF]; }
   .sidebar-foot { @apply mt-auto flex items-start gap-2.5 border-t border-white/[0.08] px-2 pt-4; }
@@ -76,6 +77,7 @@
   .main { @apply relative z-[1] ml-64 min-h-screen px-[clamp(1.5rem,4.5vw,5rem)] pb-24 pt-10; }
   .topbar { @apply mx-auto mb-10 flex max-w-[82rem] items-end justify-between gap-8; }
   .eyebrow { @apply mb-2 mt-0 text-[11px] font-normal uppercase tracking-[.1em] text-[#8A8F98]; }
+  .date-time { @apply normal-case tracking-[.04em] tabular-nums; }
   .topbar h1 { @apply m-0 text-[clamp(1.75rem,3vw,2.5rem)] font-medium leading-tight tracking-[-.04em] text-[#EDEDEF]; }
   .page-stack { @apply mx-auto grid max-w-[82rem] gap-5; }
 
@@ -180,7 +182,7 @@
   .timer-ring strong { @apply text-[clamp(3rem,8vw,4.25rem)] font-medium leading-none tracking-[-.05em] text-[#F7F8F8]; }
   .timer-ring span { @apply mt-2 text-[#8A8F98]; }
   .timer-actions { @apply flex justify-center gap-2.5; }
-  .timer-tip { @apply text-[10px] text-[#8A8F98]; }
+  .timer-tip { @apply mx-auto mb-0 mt-7 max-w-md text-center text-[11px] leading-5 text-[#8A8F98]; }
   .session-panel { @apply min-h-96; }
   .session-list > div { @apply flex items-center gap-3 border-t border-white/[0.07] px-0.5 py-3.5 first:border-t-0; }
   .session-dot { @apply size-2 rounded-full bg-[#5E6AD2]; }
@@ -290,6 +292,7 @@
   .mobile-nav { @apply fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-white/[0.08] bg-black/95 px-1.5 pb-[max(.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md; }
   .mobile-nav button { @apply grid place-items-center gap-0.5 rounded-lg border border-transparent bg-transparent p-1 text-[9px] text-[#8A8F98] transition duration-150 ease-out hover:bg-white/[0.04] active:bg-white/[0.07]; }
   .mobile-nav button span { @apply grid size-7 place-items-center rounded-md border border-white/[0.06] bg-white/[0.03] text-[15px] leading-none text-[#8A8F98] transition duration-150 ease-out; }
+  .mobile-nav button span svg { @apply size-4; }
   .mobile-nav button.active { @apply font-medium text-[#F7F8F8]; }
   .mobile-nav button.active span { @apply border-[#5E6AD2]/40 bg-[#5E6AD2]/15 text-[#AEB5FF]; }
   .toast { @apply bottom-20 left-1/2 max-w-[calc(100%-1.75rem)] text-center; }

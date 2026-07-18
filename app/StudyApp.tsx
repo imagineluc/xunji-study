@@ -77,12 +77,12 @@ const DEFAULT_DATA: AppData = {
   settings: { focusMinutes: 25, breakMinutes: 5, dailyGoalMinutes: 180 },
 };
 
-const NAV_ITEMS: { id: Tab; label: string; icon: string }[] = [
-  { id: "today", label: "今日", icon: "⌂" },
-  { id: "tasks", label: "任务", icon: "▦" },
-  { id: "focus", label: "专注", icon: "◉" },
-  { id: "stats", label: "统计", icon: "⌁" },
-  { id: "settings", label: "设置", icon: "⚙" },
+const NAV_ITEMS: { id: Tab; label: string }[] = [
+  { id: "today", label: "今日" },
+  { id: "tasks", label: "任务" },
+  { id: "focus", label: "专注" },
+  { id: "stats", label: "统计" },
+  { id: "settings", label: "设置" },
 ];
 
 function uid(prefix: string) {
@@ -131,6 +131,31 @@ function dateLabel(value: string, withWeekday = false) {
   return new Intl.DateTimeFormat("zh-CN", withWeekday
     ? { month: "numeric", day: "numeric", weekday: "short" }
     : { month: "numeric", day: "numeric" }).format(parseDate(value));
+}
+
+function dateTimeLabel(timestamp: number) {
+  const date = new Date(timestamp);
+  const weekday = new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(date);
+  const period = date.getHours() < 12 ? "AM" : "PM";
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${weekday} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} ${period}.`;
+}
+
+function NavIcon({ name }: { name: Tab }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (name === "today") return <svg {...commonProps}><path d="M3.5 10.2 12 3.5l8.5 6.7" /><path d="M5.8 9.2v10.3h12.4V9.2" /><path d="M9.4 19.5v-5.8h5.2v5.8" /></svg>;
+  if (name === "tasks") return <svg {...commonProps}><rect x="4" y="3.5" width="16" height="17" rx="2.5" /><path d="m7.5 8.2 1.3 1.3 2.1-2.3M13.5 8.5h3M7.5 14.2l1.3 1.3 2.1-2.3M13.5 14.5h3" /></svg>;
+  if (name === "focus") return <svg {...commonProps}><circle cx="12" cy="12" r="7.5" /><circle cx="12" cy="12" r="3.5" /><path d="M12 1.8v2.7M12 19.5v2.7M1.8 12h2.7M19.5 12h2.7" /></svg>;
+  if (name === "stats") return <svg {...commonProps}><path d="M4 20V10.5h4V20M10 20V4h4v16M16 20v-6.5h4V20M2.5 20h19" /></svg>;
+  return <svg {...commonProps}><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></svg>;
 }
 
 function reviewStatus(task: Task, index: number) {
@@ -289,10 +314,9 @@ export function StudyApp() {
   }, [timer, hydrated]);
 
   useEffect(() => {
-    if (!timer?.running) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [timer?.running]);
+  }, []);
 
   const remaining = timer ? (timer.running ? Math.max(0, Math.ceil((timer.endAt - now) / 1000)) : timer.pausedRemaining) : 0;
 
@@ -689,7 +713,7 @@ export function StudyApp() {
         <button className="brand" onClick={() => setTab("today")} aria-label="返回今日">
           <span className="brand-mark">循</span><span><strong>循记</strong><small>学习节奏中心</small></span>
         </button>
-        <nav>{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
+        <nav>{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span><NavIcon name={item.id} /></span>{item.label}</button>)}</nav>
         <div className="sidebar-foot">
           <span className={`sync-dot ${syncStatus}`} />
           <div><strong>{syncCode ? "云端已连接" : "仅保存在本机"}</strong><small>{syncStatus === "syncing" ? "正在同步…" : syncStatus === "error" ? "离线，稍后重试" : "数据状态正常"}</small></div>
@@ -698,7 +722,7 @@ export function StudyApp() {
 
       <main className="main">
         <header className="topbar">
-          <div><p className="eyebrow">{dateLabel(today, true)}</p><h1>{NAV_ITEMS.find((item) => item.id === tab)?.label}</h1></div>
+          <div><p className="eyebrow date-time" suppressHydrationWarning>{dateTimeLabel(now)}</p><h1>{NAV_ITEMS.find((item) => item.id === tab)?.label}</h1></div>
           <button className="primary" onClick={() => setShowAdd(true)}>＋ 新建任务</button>
         </header>
 
@@ -771,7 +795,7 @@ export function StudyApp() {
         </section>}
       </main>
 
-      <nav className="mobile-nav">{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav>
+      <nav className="mobile-nav">{NAV_ITEMS.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span><NavIcon name={item.id} /></span>{item.label}</button>)}</nav>
 
       {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-title"><div className="modal-head"><div><p className="eyebrow">NEW MEMORY</p><h2 id="new-task-title">添加学习任务</h2></div><button className="close" onClick={() => setShowAdd(false)} aria-label="关闭">×</button></div><form onSubmit={createTask}><label>任务名称<input name="title" autoFocus maxLength={100} placeholder="例如：英语 Unit 3 单词" required /></label><div className="form-grid"><label>分类<select name="category" defaultValue={data.categories[0]?.id || ""}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input name="startDate" type="date" defaultValue={today} required /></label></div><label>标签<input name="tags" placeholder="例如：单词、错题、背诵（逗号分隔）" /></label><div className="schedule-preview"><strong>自动安排 5 次复习</strong><span>1 天后 · 2 天后 · 4 天后 · 7 天后 · 15 天后</span></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setShowAdd(false)}>取消</button><button className="primary">添加并排期</button></div></form></div></div>}
       {editingTask && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEditingTask(null)}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-title"><div className="modal-head"><div><p className="eyebrow">EDIT TASK</p><h2 id="edit-task-title">编辑任务</h2></div><button className="close" onClick={() => setEditingTask(null)} aria-label="关闭">×</button></div><form onSubmit={saveEditedTask}><label>任务名称<input value={editingTask.title} onChange={(event) => setEditingTask({ ...editingTask, title: event.target.value })} maxLength={100} required /></label><div className="form-grid"><label>分类<select value={editingTask.categoryId} onChange={(event) => setEditingTask({ ...editingTask, categoryId: event.target.value })}><option value="">未分类</option>{data.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>开始日期<input type="date" value={editingTask.startDate} onChange={(event) => setEditingTask({ ...editingTask, startDate: event.target.value })} required /></label></div><label>标签</label><div className="editable-tags">{editingTask.tags.length ? editingTask.tags.map((tag) => <button type="button" key={tag} onClick={() => { const stamp = new Date().toISOString(); setEditingTask({ ...editingTask, tags: editingTask.tags.filter((entry) => entry !== tag), tagChanges: { ...getTagChanges(editingTask), [tag]: { present: false, updatedAt: stamp } } }); }}>#{tag}<span>×</span></button>) : <small>还没有标签</small>}</div><div className="inline-form"><input value={newEditTag} onChange={(event) => setNewEditTag(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addEditTag(); } }} placeholder="输入新标签" /><button type="button" className="secondary" onClick={addEditTag}>添加标签</button></div><div className="modal-actions"><button type="button" className="ghost" onClick={() => setEditingTask(null)}>取消</button><button className="primary">保存修改</button></div></form></div></div>}
