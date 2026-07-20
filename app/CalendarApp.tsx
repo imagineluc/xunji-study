@@ -12,6 +12,10 @@ export type CalendarTask = {
   startTime?: string;
   endTime?: string;
   completed?: boolean;
+  overdue?: boolean;
+  overdueLabel?: string;
+  milestone?: "ongoing-start" | "ongoing-target";
+  targetReached?: boolean;
   color?: string;
   category?: string;
 };
@@ -101,6 +105,8 @@ function formatRange(value: string, view: ViewMode) {
 }
 
 function taskTimeLabel(task: CalendarTask) {
+  if (task.milestone === "ongoing-start") return "长期任务开始";
+  if (task.milestone === "ongoing-target") return task.targetReached ? "目标日期已到" : "长期任务目标";
   if (!task.startTime) return task.type === "memory" ? `第 ${task.stage ?? 1} 轮复习` : "全天";
   return `${task.startTime}${task.endTime ? `—${task.endTime}` : ""}`;
 }
@@ -207,19 +213,15 @@ function TimelineTask({ task, dragging, onSelect, onToggle, onDragStart, onPoint
   } as CSSProperties;
   return (
     <article
-      className={`${styles.timedTask} ${task.completed ? styles.completedTask : ""} ${dragging ? styles.touchDragging : ""}`}
+      className={`${styles.timedTask} ${task.overdue ? styles.overdueTask : ""} ${task.completed ? styles.completedTask : ""} ${dragging ? styles.touchDragging : ""}`}
       style={style}
       draggable
       data-calendar-task="true"
       onDragStart={onDragStart}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
       onClick={(event) => { event.stopPropagation(); onSelect(); }}
       tabIndex={0}
       onKeyDown={(event) => event.key === "Enter" && onSelect()}
-      aria-label={`${task.title}，${taskTimeLabel(task)}`}
+      aria-label={`${task.title}，${taskTimeLabel(task)}${task.overdueLabel ? `，${task.overdueLabel}` : ""}`}
     >
       <button
         type="button"
@@ -228,7 +230,16 @@ function TimelineTask({ task, dragging, onSelect, onToggle, onDragStart, onPoint
         aria-pressed={task.completed}
         onClick={(event) => { event.stopPropagation(); onToggle(); }}
       >{task.completed ? "✓" : ""}</button>
-      <div><strong>{task.title}</strong><span>{taskTimeLabel(task)}</span></div>
+      <div><strong>{task.title}</strong><span>{task.overdueLabel || taskTimeLabel(task)}</span></div>
+      <span
+        className={styles.taskDragHandle}
+        aria-hidden="true"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onClick={(event) => event.stopPropagation()}
+      />
     </article>
   );
 }
@@ -300,18 +311,22 @@ function TimelineView({ dates, tasks, onCreate, onSelect, onToggle, onReschedule
             return <div key={day} className={styles.allDayColumn} data-calendar-drop-date={day} data-calendar-drop-kind="all-day" onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropAt(event, day, true)}>
               {dayTasks.map((task) => <button
                 type="button"
-                draggable
+                draggable={!task.milestone}
                 data-calendar-task="true"
-                onDragStart={(event) => event.dataTransfer.setData("text/calendar-task", String(task.id))}
+                onDragStart={(event) => { if (task.milestone) event.preventDefault(); else event.dataTransfer.setData("text/calendar-task", String(task.id)); }}
+                onClick={() => { if (!touchDrag.ignoreTaskClick(task)) onSelect(task); }}
+                className={`${styles.allDayTask} ${task.type === "memory" ? styles.memoryTask : ""} ${task.milestone ? styles.milestoneTask : ""} ${task.milestone === "ongoing-start" ? styles.startMilestone : ""} ${task.milestone === "ongoing-target" ? styles.targetMilestone : ""} ${task.targetReached ? styles.targetReached : ""} ${task.overdue ? styles.overdueTask : ""} ${task.completed ? styles.completedTask : ""} ${touchDrag.draggingId === String(task.id) ? styles.touchDragging : ""}`}
+                style={{ "--task-color": task.color || "var(--ui-action)" } as CSSProperties}
+                key={task.id}
+              ><i />{task.type === "memory" && <span className={styles.memoryMark}>记</span>}<span>{task.title}</span><small>{task.milestone === "ongoing-start" ? "开始" : task.milestone === "ongoing-target" ? task.targetReached ? "已到" : "目标" : task.type === "memory" ? `R${task.stage ?? 1}` : task.overdue ? "逾期" : ""}</small>{!task.milestone && <span
+                className={styles.taskDragHandle}
+                aria-hidden="true"
                 onPointerDown={(event) => touchDrag.startTaskPointer(event, task)}
                 onPointerMove={touchDrag.moveTaskPointer}
                 onPointerUp={touchDrag.finishTaskPointer}
                 onPointerCancel={touchDrag.cancelTaskPointer}
-                onClick={() => { if (!touchDrag.ignoreTaskClick(task)) onSelect(task); }}
-                className={`${styles.allDayTask} ${task.type === "memory" ? styles.memoryTask : ""} ${task.completed ? styles.completedTask : ""} ${touchDrag.draggingId === String(task.id) ? styles.touchDragging : ""}`}
-                style={{ "--task-color": task.color || "var(--ui-action)" } as CSSProperties}
-                key={task.id}
-              ><i />{task.type === "memory" && <span className={styles.memoryMark}>记</span>}<span>{task.title}</span><small>{task.type === "memory" ? `R${task.stage ?? 1}` : ""}</small></button>)}
+                onClick={(event) => event.stopPropagation()}
+              />}</button>)}
               <button className={styles.quickAddAllDay} type="button" onClick={() => onCreate({ type: "normal", date: day })}>＋</button>
             </div>;
           })}
@@ -392,17 +407,21 @@ function MonthView({ date, tasks, onSelectDate, onSelectTask, onCreate, onResche
           <div className={styles.monthTasks}>{dayTasks.slice(0, 3).map((task) => <button
             type="button"
             key={task.id}
-            draggable
+            draggable={!task.milestone}
             data-calendar-task="true"
-            className={`${task.type === "memory" ? styles.monthMemory : ""} ${task.completed ? styles.completedTask : ""} ${touchDrag.draggingId === String(task.id) ? styles.touchDragging : ""}`}
+            className={`${task.type === "memory" ? styles.monthMemory : ""} ${task.milestone ? styles.milestoneTask : ""} ${task.milestone === "ongoing-start" ? styles.startMilestone : ""} ${task.milestone === "ongoing-target" ? styles.targetMilestone : ""} ${task.targetReached ? styles.targetReached : ""} ${task.overdue ? styles.overdueTask : ""} ${task.completed ? styles.completedTask : ""} ${touchDrag.draggingId === String(task.id) ? styles.touchDragging : ""}`}
             style={{ "--task-color": task.color || "var(--ui-action)" } as CSSProperties}
-            onDragStart={(event) => event.dataTransfer.setData("text/calendar-task", String(task.id))}
+            onDragStart={(event) => { if (task.milestone) event.preventDefault(); else event.dataTransfer.setData("text/calendar-task", String(task.id)); }}
+            onClick={() => { if (!touchDrag.ignoreTaskClick(task)) onSelectTask(task); }}
+          ><i />{(task.startTime || task.milestone) && <small>{task.milestone === "ongoing-start" ? "开始" : task.milestone === "ongoing-target" ? task.targetReached ? "已到" : "目标" : task.startTime}</small>}<span>{task.title}</span>{!task.milestone && <span
+            className={styles.taskDragHandle}
+            aria-hidden="true"
             onPointerDown={(event) => touchDrag.startTaskPointer(event, task)}
             onPointerMove={touchDrag.moveTaskPointer}
             onPointerUp={touchDrag.finishTaskPointer}
             onPointerCancel={touchDrag.cancelTaskPointer}
-            onClick={() => { if (!touchDrag.ignoreTaskClick(task)) onSelectTask(task); }}
-          ><i />{task.startTime && <small>{task.startTime}</small>}<span>{task.title}</span></button>)}</div>
+            onClick={(event) => event.stopPropagation()}
+          />}</button>)}</div>
           {dayTasks.length > 3 && <button type="button" className={styles.moreTasks} onClick={() => onSelectDate(day)}>还有 {dayTasks.length - 3} 项</button>}
           <button type="button" className={styles.cellAdd} aria-label={`在 ${day} 新建任务`} onClick={() => onCreate({ type: "normal", date: day })}>＋</button>
         </section>;
@@ -418,15 +437,16 @@ function TaskDetail({ task, onClose, onToggle, onMove }: {
   onMove: (date: string) => void;
 }) {
   const [moveDate, setMoveDate] = useState(task.date);
+  const milestoneLabel = task.milestone === "ongoing-start" ? "长期任务开始" : task.milestone === "ongoing-target" ? task.targetReached ? "目标日期已到" : "长期任务目标" : "";
   return <div className={styles.detailBackdrop} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <aside className={styles.taskDetail} role="dialog" aria-modal="true" aria-labelledby="calendar-task-title">
       <div className={styles.detailHandle} />
-      <header><span className={task.type === "memory" ? styles.memoryBadge : styles.normalBadge}>{task.type === "memory" ? `第 ${task.stage ?? 1} 轮复习` : "普通任务"}</span><button type="button" onClick={onClose} aria-label="关闭任务详情">×</button></header>
+      <header><span className={task.milestone ? styles.milestoneBadge : task.type === "memory" ? styles.memoryBadge : task.overdue ? styles.overdueBadge : styles.normalBadge}>{milestoneLabel || (task.type === "memory" ? `第 ${task.stage ?? 1} 轮复习` : task.overdueLabel || "普通任务")}</span><button type="button" onClick={onClose} aria-label="关闭任务详情">×</button></header>
       <h3 id="calendar-task-title">{task.title}</h3>
       <div className={styles.detailMeta}><div><span>日期</span><strong>{new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "short" }).format(parseDate(task.date))}</strong></div><div><span>时间</span><strong>{taskTimeLabel(task)}</strong></div></div>
-      <label className={styles.moveField}>调整日期<input type="date" value={moveDate} onChange={(event) => setMoveDate(event.target.value)} /></label>
-      <div className={styles.detailActions}><button type="button" className={styles.secondaryAction} onClick={() => onMove(moveDate)} disabled={moveDate === task.date}>移动到该日</button><button type="button" className={styles.primaryAction} onClick={onToggle}>{task.completed ? "恢复为待办" : "标记完成"}</button></div>
-      <p>桌面端和手机端都可直接拖动任务，也可在这里精确调整日期。</p>
+      {!task.milestone && <><label className={styles.moveField}>调整日期<input type="date" value={moveDate} onChange={(event) => setMoveDate(event.target.value)} /></label>
+      <div className={styles.detailActions}><button type="button" className={styles.secondaryAction} onClick={() => onMove(moveDate)} disabled={moveDate === task.date}>移动到该日</button><button type="button" className={styles.primaryAction} onClick={onToggle}>{task.completed ? "恢复为待办" : "标记完成"}</button></div></>}
+      <p>{task.milestone ? "这是长期任务的日期节点，不会生成每日待办，也不会因目标日期到达而自动结束。" : "桌面端和手机端都可直接拖动任务，也可在这里精确调整日期。"}</p>
     </aside>
   </div>;
 }
@@ -447,10 +467,11 @@ export function CalendarApp({ tasks = [], onToggleComplete, onCreateTask, onResc
   const rangeStart = view === "week" ? startOfWeek(date) : view === "month" ? `${date.slice(0, 7)}-01` : dates[0];
   const rangeEnd = view === "month" ? toISO(new Date(parseDate(rangeStart).getFullYear(), parseDate(rangeStart).getMonth() + 1, 0, 12)) : dates.at(-1) ?? date;
   const periodTasks = effectiveTasks.filter((task) => task.date >= rangeStart && task.date <= rangeEnd);
-  const completedCount = periodTasks.filter((task) => task.completed).length;
+  const completedCount = periodTasks.filter((task) => !task.milestone && task.completed).length;
   const memoryCount = periodTasks.filter((task) => task.type === "memory").length;
 
   function toggleTask(id: string | number) {
+    if (tasks.find((task) => task.id === id)?.milestone) return;
     if (onToggleComplete) onToggleComplete(id);
     else setLocalDone((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
     if (selectedTask?.id === id) setSelectedTask({ ...selectedTask, completed: !selectedTask.completed });
@@ -461,6 +482,7 @@ export function CalendarApp({ tasks = [], onToggleComplete, onCreateTask, onResc
   }
 
   function reschedule(task: CalendarTask, nextDate: string, startTime = task.startTime, endTime = task.endTime) {
+    if (task.milestone) return;
     onRescheduleTask?.(task.id, nextDate, startTime, endTime);
     setSelectedTask(null);
   }

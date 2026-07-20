@@ -11,6 +11,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(UsageStatsPlugin.class);
         super.onCreate(savedInstanceState);
         // Draw the Capacitor WebView behind the transparent system bar. The
         // CSS safe-area inset keeps the page controls clear of the icons.

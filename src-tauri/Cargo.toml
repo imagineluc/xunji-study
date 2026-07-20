@@ -1,0 +1,38 @@
+[package]
+name = "xunji-desktop"
+version = "1.0.4"
+description = "循记 Windows 专注客户端"
+authors = ["Xunji"]
+edition = "2021"
+
+[lib]
+name = "xunji_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["clock"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+windows = { version = "0.62.2", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Media_Control",
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+  "Win32_UI_Input",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_UI_WindowsAndMessaging",
+] }

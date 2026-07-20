@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "循记",
+  "version": "1.0.4",
+  "identifier": "com.imagineluc.xunji.desktop",
+  "build": {
+    "beforeBuildCommand": "node_modules\\.bin\\vite.cmd build --config vite.desktop.config.ts --mode desktop",
+    "frontendDist": "../desktop-dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "循记 · 学习节奏中心",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 680,
+        "center": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.png"]
+  }
+}
